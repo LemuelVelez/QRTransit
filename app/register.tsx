@@ -8,8 +8,20 @@ import {
   Image,
 } from "react-native";
 import { Eye, EyeOff } from "lucide-react-native"; // Assuming you are using lucide-react-native
+import { useNavigation } from "@react-navigation/native"; // Importing useNavigation
+import { NativeStackNavigationProp } from "@react-navigation/native-stack"; // Import the correct type
+
+// Define your stack navigator types
+type RootStackParamList = {
+  "sign-in": undefined; // Correct route name used for navigation
+  Register: undefined;
+};
 
 const Register = () => {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList>
+  >(); // Correctly type the navigation
+
   const [showPassword, setShowPassword] = useState(false);
   const [showReTypePassword, setShowReTypePassword] = useState(false);
   const [firstName, setFirstName] = useState("");
@@ -34,7 +46,7 @@ const Register = () => {
         {/* Logo Circle */}
         <View className="w-24 h-24 bg-green-700 rounded-full justify-center items-center overflow-hidden">
           <Image
-            source={require("../assets/images/QuickRide.png")} // Updated image path
+            source={require("../assets/images/QuickRide.png")}
             className="w-24 h-24 object-contain"
           />
         </View>
@@ -219,11 +231,14 @@ const Register = () => {
           <Text className="text-white text-center text-lg">Register</Text>
         </TouchableOpacity>
 
+        {/* Login Link */}
         <TouchableOpacity
           className="w-full bg-white text-gray-800 py-3 rounded-lg hover:bg-gray-50 transition-colors"
-          onPress={() => {}}
+          onPress={() => navigation.navigate("sign-in")}
         >
-          <Text className="text-gray-800 text-center text-lg">Login</Text>
+          <Text className="text-gray-800 text-center text-lg">
+            Already have an account? <Text className="underline">Login</Text>
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

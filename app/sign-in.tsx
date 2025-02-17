@@ -8,8 +8,23 @@ import {
   Image,
 } from "react-native";
 import { Eye, EyeOff } from "lucide-react-native"; // Assuming you are using lucide-react-native
+import { useNavigation } from "@react-navigation/native"; // Import navigation hook
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+
+// Define the navigation types directly within this file
+type RootStackParamList = {
+  SignIn: undefined;
+  register: undefined;
+  // Add other screens here as needed
+};
+
+type SignInNavigationProp = NativeStackNavigationProp<
+  RootStackParamList,
+  "SignIn"
+>;
 
 const SignIn = () => {
+  const navigation = useNavigation<SignInNavigationProp>(); // Apply the correct type here
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -93,9 +108,11 @@ const SignIn = () => {
 
         <TouchableOpacity
           className="w-full bg-white text-gray-800 py-3 rounded-lg hover:bg-gray-50 transition-colors"
-          onPress={() => {}}
+          onPress={() => navigation.navigate("register")}
         >
-          <Text className="text-gray-800 text-center text-lg">Register</Text>
+          <Text className="text-gray-800 text-center text-lg">
+            Don't have an account? <Text className="underline">Register</Text>
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
