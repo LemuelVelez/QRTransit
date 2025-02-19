@@ -7,7 +7,7 @@ import {
   View,
   Image,
 } from "react-native";
-import { Eye, EyeOff } from "lucide-react-native"; // Assuming you are using lucide-react-native
+import Icon from "react-native-vector-icons/MaterialIcons"; // Use MaterialIcons for Eye and EyeOff
 import { useNavigation } from "@react-navigation/native"; // Importing useNavigation
 import { NativeStackNavigationProp } from "@react-navigation/native-stack"; // Import the correct type
 
@@ -184,9 +184,9 @@ const Register = () => {
             className="absolute right-3 top-1/2 -translate-y-1/2"
           >
             {showPassword ? (
-              <EyeOff width={24} height={24} color="#6B7280" />
+              <Icon name="visibility-off" size={24} color="#6B7280" />
             ) : (
-              <Eye width={24} height={24} color="#6B7280" />
+              <Icon name="visibility" size={24} color="#6B7280" />
             )}
           </TouchableOpacity>
         </View>
@@ -216,9 +216,9 @@ const Register = () => {
             className="absolute right-3 top-1/2 -translate-y-1/2"
           >
             {showReTypePassword ? (
-              <EyeOff width={24} height={24} color="#6B7280" />
+              <Icon name="visibility-off" size={24} color="#6B7280" />
             ) : (
-              <Eye width={24} height={24} color="#6B7280" />
+              <Icon name="visibility" size={24} color="#6B7280" />
             )}
           </TouchableOpacity>
         </View>
