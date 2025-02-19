@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, SafeAreaView } from "react-native";
-import { Settings, LogOut, ChevronRight } from "lucide-react-native";
+import Icon from "react-native-vector-icons/MaterialIcons";
 
 const Profile = () => {
   return (
@@ -22,19 +22,19 @@ const Profile = () => {
         {/* Settings Button */}
         <TouchableOpacity className="flex-row items-center justify-between py-3 border-b border-[#4aff9b]">
           <View className="flex-row items-center gap-3">
-            <Settings stroke="black" width={20} height={20} />
+            <Icon name="settings" size={20} color="black" />
             <Text className="text-base">Settings</Text>
           </View>
-          <ChevronRight stroke="black" width={20} height={20} />
+          <Icon name="chevron-right" size={20} color="black" />
         </TouchableOpacity>
 
         {/* Logout Button - Positioned right after Settings button */}
         <TouchableOpacity className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30">
           <View className="flex-row items-center gap-3">
-            <LogOut stroke="black" width={20} height={20} />
+            <Icon name="exit-to-app" size={20} color="black" />
             <Text className="text-base">Log Out</Text>
           </View>
-          <ChevronRight stroke="black" width={20} height={20} />
+          <Icon name="chevron-right" size={20} color="black" />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
