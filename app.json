@@ -15,7 +15,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/QuickRide.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.lemuel007.QRTransit"
     },
     "web": {
       "bundler": "metro",
@@ -47,9 +48,16 @@
         }
       ]
     ],
-
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "1258fff0-eba7-43ae-a6ed-efd12a48036b"
+      }
     }
   }
 }
