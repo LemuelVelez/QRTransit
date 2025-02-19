@@ -58,5 +58,15 @@
     "@react-native-community/cli": "latest"
     
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "lucide-react-native",
+          "tailwindcss"
+        ]
+      }
+    }
+  }
 }
