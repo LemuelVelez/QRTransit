@@ -10,12 +10,9 @@ export default function Index() {
         alignItems: "center",
       }}
     >
-      <Text className="font-bold text-xl my-10">Welcome to QuickRide</Text>
+      <Text className="font-bold text-xl my-10">Welcome to QRTransit</Text>
       <Link href="/sign-in">Sign In</Link>
       <Link href="/register">Register</Link>
-      <Link href="/explore">Explore</Link>
-      <Link href="/profile">Profile</Link>
-      <Link href="/properties/5">Property</Link>
     </View>
   );
 }
