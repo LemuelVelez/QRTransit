@@ -43,7 +43,7 @@ const TabIcon = ({
             position: "absolute",
             bottom: -11,
             width: "100%",
-            height: 46,
+            height: 48,
             backgroundColor,
             borderBottomLeftRadius: 20,
             borderBottomRightRadius: 20,
@@ -65,8 +65,6 @@ const TabsLayout = () => {
         tabBarStyle: {
           backgroundColor: "#188E54",
           position: "absolute",
-          borderTopColor: "#E5E5E5",
-          borderTopWidth: 1,
           height: 65 + insets.bottom,
           paddingBottom: insets.bottom,
         },
@@ -110,6 +108,9 @@ const TabsLayout = () => {
               isQR={true}
             />
           ),
+          tabBarStyle: {
+            display: "none", // Hides the tab bar when on the QR Code screen
+          },
         }}
       />
       <Tabs.Screen
