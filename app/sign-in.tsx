@@ -13,18 +13,14 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 // Define the navigation types directly within this file
 type RootStackParamList = {
-  SignIn: undefined;
   register: undefined;
   // Add other screens here as needed
 };
 
-type SignInNavigationProp = NativeStackNavigationProp<
-  RootStackParamList,
-  "SignIn"
->;
-
 const SignIn = () => {
-  const navigation = useNavigation<SignInNavigationProp>(); // Apply the correct type here
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList>
+  >();
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

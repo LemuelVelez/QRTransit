@@ -7,20 +7,19 @@ import {
   View,
   Image,
 } from "react-native";
-import Icon from "react-native-vector-icons/MaterialIcons"; // Use MaterialIcons for Eye and EyeOff
-import { useNavigation } from "@react-navigation/native"; // Importing useNavigation
-import { NativeStackNavigationProp } from "@react-navigation/native-stack"; // Import the correct type
+import Icon from "react-native-vector-icons/MaterialIcons";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 // Define your stack navigator types
 type RootStackParamList = {
-  "sign-in": undefined; // Correct route name used for navigation
-  Register: undefined;
+  "sign-in": undefined;
 };
 
 const Register = () => {
   const navigation = useNavigation<
     NativeStackNavigationProp<RootStackParamList>
-  >(); // Correctly type the navigation
+  >();
 
   const [showPassword, setShowPassword] = useState(false);
   const [showReTypePassword, setShowReTypePassword] = useState(false);

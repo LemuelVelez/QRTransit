@@ -1,7 +1,18 @@
 import { View, Text, TouchableOpacity, SafeAreaView } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+
+// Define your stack navigator types
+type RootStackParamList = {
+  "sign-in": undefined;
+};
 
 const Profile = () => {
+  const navigation = useNavigation<
+    NativeStackNavigationProp<RootStackParamList>
+  >();
+
   return (
     <SafeAreaView className="flex-1">
       {/* Profile Section */}
@@ -29,7 +40,10 @@ const Profile = () => {
         </TouchableOpacity>
 
         {/* Logout Button - Positioned right after Settings button */}
-        <TouchableOpacity className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30">
+        <TouchableOpacity
+          className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30"
+          onPress={() => navigation.navigate("sign-in")}
+        >
           <View className="flex-row items-center gap-3">
             <Icon name="exit-to-app" size={20} color="black" />
             <Text className="text-base">Log Out</Text>
