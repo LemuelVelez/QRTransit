@@ -25,7 +25,7 @@ export default function QRCodeDisplay() {
       </View>
 
       {/* Main Content */}
-      <View className="flex-1 items-center mt-12">
+      <View className="flex-1 items-center mt-32">
         <View className="w-full max-w-[320px] relative">
           {/* Profile Icon with image */}
           <View className="absolute top-[-58px] left-1/2 transform -translate-x-12 w-28 h-28 bg-white rounded-full z-10 items-center justify-center shadow-lg">
