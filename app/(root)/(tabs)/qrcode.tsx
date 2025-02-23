@@ -31,7 +31,7 @@ export default function QRCodeDisplay() {
           <View className="absolute top-[-58px] left-1/2 transform -translate-x-12 w-28 h-28 bg-white rounded-full z-10 items-center justify-center shadow-lg">
             <View className="w-18 h-18 bg-emerald-400 rounded-full items-center justify-center shadow-lg">
               <Image
-                source={require("../../../assets/images/profile_icon 1.png")} // Update with your file path
+                source={require("../../../assets/images/profile_icon 1.png")}
                 style={{ width: 77, height: 77, borderRadius: 32 }}
               />
             </View>
