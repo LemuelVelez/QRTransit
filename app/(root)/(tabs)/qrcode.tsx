@@ -6,8 +6,8 @@ import {
   SafeAreaView,
   Image,
 } from "react-native";
-import Icon from "react-native-vector-icons/MaterialIcons";
-import QRCode from "react-native-qrcode-svg";
+import { MaterialIcons } from "@expo/vector-icons"; // Using Expo's vector icons
+import QRCode from "react-native-qrcode-svg"; // Using react-native-qrcode-svg
 import { useNavigation } from "@react-navigation/native";
 
 export default function QRCodeDisplay() {
@@ -20,7 +20,7 @@ export default function QRCodeDisplay() {
       {/* Navigation */}
       <View className="mb-4">
         <TouchableOpacity onPress={() => navigation.goBack()} className="p-1">
-          <Icon name="arrow-back" size={24} color="#000000" />
+          <MaterialIcons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>
       </View>
 
