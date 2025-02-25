@@ -12,7 +12,7 @@ export default function QRCodeDisplay() {
   return (
     <SafeAreaView className="flex-1 bg-emerald-400 p-4">
       {/* Navigation */}
-      <View className="mb-4">
+      <View className="mb-4 mt-9">
         <TouchableOpacity onPress={() => navigation.goBack()} className="p-1">
           <MaterialIcons name="arrow-back" size={24} color="#000000" />
         </TouchableOpacity>

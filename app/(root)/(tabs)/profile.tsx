@@ -14,9 +14,9 @@ const Profile = () => {
   >();
 
   return (
-    <SafeAreaView className="flex-1">
+    <SafeAreaView className="flex-1 bg bg-emerald-600">
       {/* Profile Section */}
-      <View className="bg-[#199256] p-4">
+      <View className="bg-emerald-600 p-4 mt-9">
         <View className="flex-row items-center gap-3">
           <View className="w-10 h-10 bg-white rounded-full items-center justify-center">
             <Text className="text-2xl">👤</Text>

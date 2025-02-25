@@ -60,7 +60,12 @@ const TabsLayout = () => {
 
   return (
     <>
-      <StatusBar barStyle="light-content" backgroundColor="#188E54" />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent={true}
+      />
+
       <Tabs
         screenOptions={{
           tabBarShowLabel: false,
