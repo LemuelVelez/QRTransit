@@ -2,9 +2,16 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { AntDesign, Feather } from '@expo/vector-icons';
 import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
+type RootStackParamList = {
+    register: undefined;
+    pin: undefined;
+};
 export default function PinSetupScreen() {
-    const navigation = useNavigation();
+    const navigation = useNavigation<
+        NativeStackNavigationProp<RootStackParamList>
+    >();
     const [showPin, setShowPin] = useState(false);
     const [showConfirmPin, setShowConfirmPin] = useState(false);
     const [pin, setPin] = useState('');
@@ -99,6 +106,7 @@ export default function PinSetupScreen() {
                     <TouchableOpacity
                         className={`w-full py-3 rounded-md items-center ${isNextDisabled ? 'bg-green-600 opacity-50' : 'bg-green-600'}`}
                         disabled={isNextDisabled}
+                        onPress={() => navigation.navigate("pin")}
                     >
                         <Text className="text-white font-medium">Next</Text>
                     </TouchableOpacity>
