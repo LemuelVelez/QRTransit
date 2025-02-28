@@ -14,7 +14,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 // Define the navigation types directly within this file
 type RootStackParamList = {
   register: undefined;
-  // Add other screens here as needed
+  pin: undefined;
 };
 
 const SignIn = () => {
@@ -52,11 +52,10 @@ const SignIn = () => {
             onBlur={() => setIsUsernameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isUsernameFocused || username
+            className={`absolute left-4 transition-all text-sm ${isUsernameFocused || username
                 ? "-top-2.5 text-gray-600"
                 : "top-3.5 text-gray-400"
-            }`}
+              }`}
           >
             Username
           </Text>
@@ -74,11 +73,10 @@ const SignIn = () => {
             onBlur={() => setIsPasswordFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isPasswordFocused || password
+            className={`absolute left-4 transition-all text-sm ${isPasswordFocused || password
                 ? "-top-2.5 text-gray-600"
                 : "top-3.5 text-gray-400"
-            }`}
+              }`}
           >
             Password
           </Text>
@@ -97,7 +95,7 @@ const SignIn = () => {
         {/* Buttons */}
         <TouchableOpacity
           className="w-full bg-blue-600 py-3 rounded-lg hover:bg-blue-700 transition-colors mb-4"
-          onPress={() => {}}
+          onPress={() => navigation.navigate("pin")}
         >
           <Text className="text-white text-center text-lg">Log In</Text>
         </TouchableOpacity>

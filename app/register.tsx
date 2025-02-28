@@ -14,6 +14,8 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 // Define your stack navigator types
 type RootStackParamList = {
   "sign-in": undefined;
+  "register-pin": undefined;
+
 };
 
 const Register = () => {
@@ -64,11 +66,10 @@ const Register = () => {
             onBlur={() => setIsFirstNameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isFirstNameFocused || firstName
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isFirstNameFocused || firstName
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             First Name
           </Text>
@@ -85,11 +86,10 @@ const Register = () => {
             onBlur={() => setIsLastNameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isLastNameFocused || lastName
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isLastNameFocused || lastName
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             Last Name
           </Text>
@@ -106,11 +106,10 @@ const Register = () => {
             onBlur={() => setIsEmailFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isEmailFocused || email
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isEmailFocused || email
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             Email
           </Text>
@@ -127,11 +126,10 @@ const Register = () => {
             onBlur={() => setIsPhoneNumberFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isPhoneNumberFocused || phoneNumber
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isPhoneNumberFocused || phoneNumber
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             Phone Number
           </Text>
@@ -148,11 +146,10 @@ const Register = () => {
             onBlur={() => setIsUsernameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isUsernameFocused || username
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isUsernameFocused || username
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             Username
           </Text>
@@ -170,11 +167,10 @@ const Register = () => {
             onBlur={() => setIsPasswordFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isPasswordFocused || password
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isPasswordFocused || password
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             Password
           </Text>
@@ -202,11 +198,10 @@ const Register = () => {
             onBlur={() => setIsReTypePasswordFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${
-              isReTypePasswordFocused || reTypePassword
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
-            }`}
+            className={`absolute left-4 transition-all text-sm ${isReTypePasswordFocused || reTypePassword
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
+              }`}
           >
             Re-type Password
           </Text>
@@ -225,7 +220,7 @@ const Register = () => {
         {/* Buttons */}
         <TouchableOpacity
           className="w-full bg-blue-600 py-3 rounded-lg hover:bg-blue-700 transition-colors mb-4"
-          onPress={() => {}}
+          onPress={() => navigation.navigate("register-pin")}
         >
           <Text className="text-white text-center text-lg">Register</Text>
         </TouchableOpacity>
