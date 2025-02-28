@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { AntDesign, Feather } from '@expo/vector-icons';
+import { useNavigation } from "@react-navigation/native";
 
 export default function PinSetupScreen() {
+    const navigation = useNavigation();
     const [showPin, setShowPin] = useState(false);
     const [showConfirmPin, setShowConfirmPin] = useState(false);
     const [pin, setPin] = useState('');
@@ -27,7 +29,7 @@ export default function PinSetupScreen() {
         <View className="flex-1 bg-green-600">
             {/* Header */}
             <View className="mt-12 flex-row items-center p-4 bg-green-600">
-                <TouchableOpacity className="mr-4">
+                <TouchableOpacity onPress={() => navigation.goBack()} className="mr-4">
                     <AntDesign name="arrowleft" size={24} color="black" />
                 </TouchableOpacity>
                 <Text className="text-xl font-medium text-black">Register</Text>
@@ -83,7 +85,7 @@ export default function PinSetupScreen() {
                         </View>
                     </View>
 
-                    <View className="flex-row items-start space-x-2 mt-auto pt-8">
+                    <View className="flex-row items-start mt-96 space-x-2 pt-8">
                         <TouchableOpacity onPress={toggleAgreed} className="mt-1">
                             <View className={`w-5 h-5 border border-black rounded ${agreed ? 'bg-green-600' : 'bg-transparent'} justify-center items-center`}>
                                 {agreed && <AntDesign name="check" size={16} color="white" />}

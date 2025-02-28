@@ -30,9 +30,10 @@ export default function PinEntryScreen() {
     };
 
     return (
-        <View className="flex-1 bg-green-400 items-center justify-between">
+        // Removed justify-between to have more control over positioning
+        <View className="flex-1 bg-green-400 items-center">
             {/* Logo */}
-            <View className="mt-28 w-full max-w-sm items-center">
+            <View className="mt-32 w-full max-w-sm items-center">
                 {/* Logo Circle */}
                 <View className="w-24 h-24 bg-green-700 rounded-full justify-center items-center overflow-hidden">
                     <Image
@@ -43,35 +44,34 @@ export default function PinEntryScreen() {
             </View>
 
             {/* PIN Entry Area */}
-            <View className="items-center mb-20">
+            <View className="items-center mt-24">
                 <Text className="text-3xl text-black mb-8">Enter your PIN</Text>
                 {renderDots()}
             </View>
-
-            {/* Keypad */}
-            <View className="w-full py-2 px-2 pb-10">
-                <View className="bg-white rounded-b-3xl pt-8 pb-12">
-                    <View className="flex-row flex-wrap justify-center px-8">
+            {/* Keypad - Positioned at bottom with reduced height */}
+            <View className="absolute bottom-2 w-full px-2">
+                <View className="bg-white rounded-b-3xl pt-2 pb-1">
+                    <View className="flex-row flex-wrap justify-between mx-2">
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((number) => (
                             <TouchableOpacity
                                 key={number}
-                                className="w-[30%] aspect-square justify-center items-center mb-8"
+                                className="w-[30%] h-16 justify-center items-center mb-1"
                                 onPress={() => handleNumberPress(number.toString())}
                             >
                                 <Text className="text-2xl text-black">{number}</Text>
                             </TouchableOpacity>
                         ))}
-                        <TouchableOpacity className="w-[30%] aspect-square justify-center items-center">
+                        <TouchableOpacity className="w-[30%] h-12 justify-center items-center">
                             <Text className="text-2xl text-black"></Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                            className="w-[30%] aspect-square justify-center items-center"
+                            className="w-[30%] h-12 justify-center items-center mb-1"
                             onPress={() => handleNumberPress('0')}
                         >
                             <Text className="text-2xl text-black">0</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                            className="w-[30%] aspect-square justify-center items-center"
+                            className="w-[30%] h-12 justify-center items-center mb-1"
                             onPress={handleDelete}
                         >
                             <MaterialCommunityIcons name="backspace-outline" size={24} color="black" />
