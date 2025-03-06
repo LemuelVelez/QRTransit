@@ -40,18 +40,6 @@ const Profile = () => {
           <Icon name="chevron-right" size={20} color="black" />
         </TouchableOpacity>
 
-        {/* Logout Button - Positioned right after Settings button */}
-        <TouchableOpacity
-          className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30"
-          onPress={() => navigation.navigate("sign-in")}
-        >
-          <View className="flex-row items-center gap-3">
-            <Icon name="exit-to-app" size={20} color="black" />
-            <Text className="text-base">Log Out</Text>
-          </View>
-          <Icon name="chevron-right" size={20} color="black" />
-        </TouchableOpacity>
-
         <TouchableOpacity
           className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30"
           onPress={() => navigation.navigate("conductor")}
@@ -61,6 +49,17 @@ const Profile = () => {
             <Text className="text-base">Conductor</Text>
           </View>
 
+          <Icon name="chevron-right" size={20} color="black" />
+        </TouchableOpacity>
+        {/* Logout Button - Positioned right after Settings button */}
+        <TouchableOpacity
+          className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30"
+          onPress={() => navigation.navigate("sign-in")}
+        >
+          <View className="flex-row items-center gap-3">
+            <Icon name="exit-to-app" size={20} color="black" />
+            <Text className="text-base">Log Out</Text>
+          </View>
           <Icon name="chevron-right" size={20} color="black" />
         </TouchableOpacity>
       </View>
