@@ -25,6 +25,7 @@
     "expo-blur": "~14.0.3",
     "expo-camera": "^16.0.17",
     "expo-constants": "~17.0.7",
+    "expo-crypto": "~14.0.2",
     "expo-font": "~13.0.4",
     "expo-haptics": "~14.0.1",
     "expo-image-picker": "^16.0.6",
@@ -37,6 +38,9 @@
     "expo-web-browser": "~14.0.2",
     "jest-expo": "~52.0.5",
     "lucide-react-native": "^0.475.0",
+    "metro": "^0.81.0",
+    "metro-config": "^0.81.0",
+    "metro-resolver": "^0.81.0",
     "nativewind": "^4.1.23",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -53,8 +57,7 @@
     "react-native-vector-icons": "^10.2.0",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",
-    "tailwindcss": "^3.4.17",
-    "expo-crypto": "~14.0.2"
+    "tailwindcss": "^3.4.17"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -75,7 +78,10 @@
       "reactNativeDirectoryCheck": {
         "exclude": [
           "lucide-react-native",
-          "tailwindcss"
+          "tailwindcss",
+          "metro",
+          "metro-config",
+          "metro-resolver"
         ]
       }
     }

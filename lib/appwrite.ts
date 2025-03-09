@@ -167,18 +167,6 @@ export async function registerPin(pin: string) {
       throw new Error("User document not found");
     }
     
-    const userDocument = users.documents[0];
-    
-    // Update the user document with the hashed PIN
-    const updatedUser = await databases.updateDocument(
-      config.databaseId!,
-      config.usersCollectionId!,
-      userDocument.$id,
-      {
-        pin: hashedPin
-      }
-    );
-    
     return {
       ...currentUser,
       pin: hashedPin
