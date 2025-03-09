@@ -7,13 +7,13 @@ import {
   Query,
 } from "react-native-appwrite";
 
-import * as Crypto from 'expo-crypto';
+import * as Crypto from "expo-crypto";
 
 export const config = {
-  endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
-  projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
-  databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
-  usersCollectionId: process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID,
+  endpoint: process.env.APPWRITE_ENDPOINT,
+  projectId: process.env.APPWRITE_PROJECT_ID,
+  databaseId: process.env.APPWRITE_DATABASE_ID,
+  usersCollectionId: process.env.APPWRITE_USERS_COLLECTION_ID,
 };
 
 export const client = new Client();
@@ -84,9 +84,7 @@ export async function loginUser(username: string, password: string) {
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
-      [
-        Query.equal("username", username)
-      ]
+      [Query.equal("username", username)]
     );
 
     // Check if user exists
@@ -95,14 +93,17 @@ export async function loginUser(username: string, password: string) {
     }
 
     const user = users.documents[0];
-    
+
     // Create a session with the user's email and password
-    const session = await account.createEmailPasswordSession(user.email, password);
-    
+    const session = await account.createEmailPasswordSession(
+      user.email,
+      password
+    );
+
     if (session) {
       // Get user account details
       const accountDetails = await account.get();
-      
+
       // Return user data
       return {
         ...accountDetails,
@@ -110,7 +111,9 @@ export async function loginUser(username: string, password: string) {
         lastname: user.lastname,
         username: user.username,
         phonenumber: user.phonenumber,
-        avatar: avatar.getInitials(`${user.firstname} ${user.lastname}`).toString(),
+        avatar: avatar
+          .getInitials(`${user.firstname} ${user.lastname}`)
+          .toString(),
       };
     }
 
@@ -124,11 +127,11 @@ export async function loginUser(username: string, password: string) {
 export async function logoutUser() {
   try {
     // Get the current session
-    const currentSession = await account.getSession('current');
-    
+    const currentSession = await account.getSession("current");
+
     // Delete the current session
     await account.deleteSession(currentSession.$id);
-    
+
     return { success: true };
   } catch (error) {
     console.error("Logout error:", error);
@@ -145,31 +148,31 @@ export async function registerPin(pin: string) {
   try {
     // Get current user
     const currentUser = await getCurrentUser();
-    
+
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
-    
+
     // Hash the PIN using SHA-256
     const hashedPin = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
       pin
     );
-    
+
     // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    
+
     if (users.documents.length === 0) {
       throw new Error("User document not found");
     }
-    
+
     return {
       ...currentUser,
-      pin: hashedPin
+      pin: hashedPin,
     };
   } catch (error) {
     console.error("PIN registration error:", error);
@@ -186,35 +189,35 @@ export async function verifyPin(pin: string) {
   try {
     // Get current user
     const currentUser = await getCurrentUser();
-    
+
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
-    
+
     // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    
+
     if (users.documents.length === 0) {
       throw new Error("User document not found");
     }
-    
+
     const userDocument = users.documents[0];
-    
+
     // If no PIN is set, return false
     if (!userDocument.pin) {
       return false;
     }
-    
+
     // Hash the provided PIN
     const hashedPin = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
       pin
     );
-    
+
     // Compare the hashed PIN with the stored one
     return hashedPin === userDocument.pin;
   } catch (error) {
@@ -230,28 +233,30 @@ export async function verifyPin(pin: string) {
 export async function getPin() {
   try {
     // Get current user
-    const currentUser = await getCurrentUser()
+    const currentUser = await getCurrentUser();
 
     if (!currentUser || !currentUser.$id) {
-      throw new Error("No authenticated user found")
+      throw new Error("No authenticated user found");
     }
 
     // Find the user document
-    const users = await databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
-      Query.equal("userId", currentUser.$id),
-    ])
+    const users = await databases.listDocuments(
+      config.databaseId!,
+      config.usersCollectionId!,
+      [Query.equal("userId", currentUser.$id)]
+    );
 
     if (users.documents.length === 0) {
-      throw new Error("User document not found")
+      throw new Error("User document not found");
     }
 
-    const userDocument = users.documents[0]
+    const userDocument = users.documents[0];
 
     // Return the hashed PIN or null if not set
-    return userDocument.pin || null
+    return userDocument.pin || null;
   } catch (error) {
-    console.error("Get PIN error:", error)
-    return null
+    console.error("Get PIN error:", error);
+    return null;
   }
 }
 
