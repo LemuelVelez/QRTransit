@@ -81,9 +81,18 @@
           "tailwindcss",
           "metro",
           "metro-config",
-          "metro-resolver"
+          "metro-resolver",
+          "react-native-appwrite"
         ]
       }
+    }
+  },
+    "overrides": {
+    "react-native-appwrite": {
+      "react-native": "0.76.7",
+      "metro": "0.81.0",
+      "metro-config": "0.81.0",
+      "metro-resolver": "0.81.0"
     }
   }
 }
