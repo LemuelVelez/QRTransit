@@ -1,18 +1,36 @@
-import { View, Text, TouchableOpacity, SafeAreaView } from "react-native";
-import Icon from "react-native-vector-icons/MaterialIcons";
-import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+"use client"
+
+import { View, Text, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert } from "react-native"
+import Icon from "react-native-vector-icons/MaterialIcons"
+import { useNavigation } from "@react-navigation/native"
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
+import { useState } from "react"
+import { logoutUser } from "@/lib/appwrite"
 
 // Define your stack navigator types
 type RootStackParamList = {
-  "sign-in": undefined;
-  conductor: undefined;
-};
+  "sign-in": undefined
+  conductor: undefined
+}
 
 const Profile = () => {
-  const navigation = useNavigation<
-    NativeStackNavigationProp<RootStackParamList>
-  >();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>()
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true)
+      await logoutUser()
+      // Navigate to sign-in screen after successful logout
+      navigation.navigate("sign-in")
+    } catch (error) {
+      console.error("Logout failed:", error)
+      // Show error alert
+      Alert.alert("Logout Failed", "There was a problem logging out. Please try again.", [{ text: "OK" }])
+    } finally {
+      setIsLoggingOut(false)
+    }
+  }
 
   return (
     <SafeAreaView className="flex-1 bg bg-emerald-600">
@@ -51,20 +69,27 @@ const Profile = () => {
 
           <Icon name="chevron-right" size={20} color="black" />
         </TouchableOpacity>
+
         {/* Logout Button - Positioned right after Settings button */}
         <TouchableOpacity
           className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30"
-          onPress={() => navigation.navigate("sign-in")}
+          onPress={handleLogout}
+          disabled={isLoggingOut}
         >
           <View className="flex-row items-center gap-3">
             <Icon name="exit-to-app" size={20} color="black" />
             <Text className="text-base">Log Out</Text>
           </View>
-          <Icon name="chevron-right" size={20} color="black" />
+          {isLoggingOut ? (
+            <ActivityIndicator size="small" color="black" />
+          ) : (
+            <Icon name="chevron-right" size={20} color="black" />
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
-  );
-};
+  )
+}
 
-export default Profile;
+export default Profile
+

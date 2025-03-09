@@ -4,7 +4,7 @@ import { Redirect, Slot } from "expo-router"
 import { ActivityIndicator } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useEffect, useState } from "react"
-import { getCurrentSession } from "../../lib/sign-in"
+import { getCurrentSession } from "../../lib/appwrite"
 
 export default function AppLayout() {
   const [isLogged, setIsLogged] = useState<boolean | null>(null)

@@ -1,53 +1,142 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+"use client"
+
+import { useState, useEffect } from "react"
+import { View, Text, TouchableOpacity, Image, ActivityIndicator, Alert } from "react-native"
+import { MaterialCommunityIcons } from "@expo/vector-icons"
+import { useRouter } from "expo-router"
+import { getPin, getCurrentUser } from "../lib/appwrite"
+import * as Crypto from "expo-crypto"
 
 export default function PinEntryScreen() {
-    const [pin, setPin] = useState<string>('');
+    const [pin, setPin] = useState<string>("")
+    const [loading, setLoading] = useState<boolean>(true)
+    const [verifying, setVerifying] = useState<boolean>(false)
+    const [hasPin, setHasPin] = useState<boolean>(false)
+    const [user, setUser] = useState<any>(null)
+    const router = useRouter()
+
+    // Check if user has a PIN set
+    useEffect(() => {
+        async function checkUserPin() {
+            try {
+                setLoading(true)
+                const currentUser = await getCurrentUser()
+                if (!currentUser) {
+                    // No authenticated user, redirect to login
+                    router.replace("/sign-in")
+                    return
+                }
+
+                setUser(currentUser)
+                const storedPin = await getPin()
+                setHasPin(!!storedPin)
+                setLoading(false)
+            } catch (error) {
+                console.error("Error checking user PIN:", error)
+                setLoading(false)
+                Alert.alert("Error", "Failed to load user data. Please try again.")
+            }
+        }
+
+        checkUserPin()
+    }, [])
 
     const handleNumberPress = (number: string) => {
         if (pin.length < 4) {
-            setPin(pin + number);
+            const newPin = pin + number
+            setPin(newPin)
+
+            // If PIN is complete (4 digits), verify it
+            if (newPin.length === 4) {
+                verifyPin(newPin)
+            }
         }
-    };
+    }
+
+    const verifyPin = async (enteredPin: string) => {
+        try {
+            setVerifying(true)
+            const storedPin = await getPin()
+
+            if (!storedPin) {
+                // No PIN set, this is a new PIN setup
+                // In a real app, you would hash and save this PIN
+                Alert.alert("Success", "PIN setup would be completed here")
+                router.replace("/")
+                return
+            }
+
+            // Hash the entered PIN to compare with stored hash
+            // Note: This is a simplified example. In a real app, you would use
+            // the same hashing algorithm and salt as used when storing the PIN
+            const hashedPin = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, enteredPin)
+
+            // Compare the hashed PIN with the stored hash
+            // Note: This is simplified. In a real app, you would use a secure comparison method
+            if (hashedPin === storedPin) {
+                // PIN is correct, navigate to home
+                router.replace("/")
+            } else {
+                // PIN is incorrect
+                Alert.alert("Error", "Incorrect PIN. Please try again.")
+                setPin("")
+            }
+        } catch (error) {
+            console.error("PIN verification error:", error)
+            Alert.alert("Error", "Failed to verify PIN. Please try again.")
+        } finally {
+            setVerifying(false)
+        }
+    }
 
     const handleDelete = () => {
-        setPin(pin.slice(0, -1));
-    };
+        setPin(pin.slice(0, -1))
+    }
 
     const renderDots = () => {
         return (
             <View className="flex-row justify-center">
                 {[0, 1, 2, 3].map((i) => (
-                    <View
-                        key={i}
-                        className={`w-5 h-5 rounded-full mx-4 ${i < pin.length ? 'bg-white' : 'bg-white/50'
-                            }`}
-                    />
+                    <View key={i} className={`w-5 h-5 rounded-full mx-4 ${i < pin.length ? "bg-white" : "bg-white/50"}`} />
                 ))}
             </View>
-        );
-    };
+        )
+    }
+
+    if (loading) {
+        return (
+            <View className="flex-1 bg-green-400 justify-center items-center">
+                <ActivityIndicator size="large" color="white" />
+                <Text className="text-white mt-4">Loading...</Text>
+            </View>
+        )
+    }
 
     return (
-        // Removed justify-between to have more control over positioning
         <View className="flex-1 bg-green-400 items-center">
             {/* Logo */}
             <View className="mt-32 w-full max-w-sm items-center">
                 {/* Logo Circle */}
                 <View className="w-24 h-24 bg-green-700 rounded-full justify-center items-center overflow-hidden">
-                    <Image
-                        source={require("../assets/images/QuickRide.png")}
-                        className="w-24 h-24 object-contain"
-                    />
+                    <Image source={require("../assets/images/QuickRide.png")} className="w-24 h-24 object-contain" />
                 </View>
             </View>
 
+            {/* User greeting */}
+            {user && <Text className="text-white text-xl mt-6">Welcome, {user.firstname || user.name}</Text>}
+
             {/* PIN Entry Area */}
-            <View className="items-center mt-24">
-                <Text className="text-3xl text-black mb-8">Enter your PIN</Text>
+            <View className="items-center mt-16">
+                <Text className="text-3xl text-black mb-8">{hasPin ? "Enter your PIN" : "Create a PIN"}</Text>
                 {renderDots()}
+
+                {verifying && (
+                    <View className="mt-4">
+                        <ActivityIndicator size="small" color="white" />
+                    </View>
+                )}
             </View>
+
             {/* Keypad - Positioned at bottom with reduced height */}
             <View className="absolute bottom-2 w-full px-2">
                 <View className="bg-white rounded-b-3xl pt-2 pb-1">
@@ -57,6 +146,7 @@ export default function PinEntryScreen() {
                                 key={number}
                                 className="w-[30%] h-16 justify-center items-center mb-1"
                                 onPress={() => handleNumberPress(number.toString())}
+                                disabled={verifying}
                             >
                                 <Text className="text-2xl text-black">{number}</Text>
                             </TouchableOpacity>
@@ -66,13 +156,15 @@ export default function PinEntryScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                             className="w-[30%] h-12 justify-center items-center mb-1"
-                            onPress={() => handleNumberPress('0')}
+                            onPress={() => handleNumberPress("0")}
+                            disabled={verifying}
                         >
                             <Text className="text-2xl text-black">0</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             className="w-[30%] h-12 justify-center items-center mb-1"
                             onPress={handleDelete}
+                            disabled={verifying}
                         >
                             <MaterialCommunityIcons name="backspace-outline" size={24} color="black" />
                         </TouchableOpacity>
@@ -80,5 +172,6 @@ export default function PinEntryScreen() {
                 </View>
             </View>
         </View>
-    );
+    )
 }
+
