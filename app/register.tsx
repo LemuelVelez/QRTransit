@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
   Image,
+  StatusBar,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
@@ -43,6 +44,11 @@ const Register = () => {
 
   return (
     <SafeAreaView className="flex-1 bg-green-400 justify-center items-center p-4">
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent={true}
+      />
       <View className="w-full max-w-sm items-center mb-8">
         {/* Logo Circle */}
         <View className="w-24 h-24 bg-green-700 rounded-full justify-center items-center overflow-hidden">

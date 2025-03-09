@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   View,
   Image,
+  StatusBar,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons"; // Use MaterialIcons
 import { useNavigation } from "@react-navigation/native"; // Import navigation hook
@@ -29,6 +30,11 @@ const SignIn = () => {
 
   return (
     <SafeAreaView className="flex-1 bg-green-400 justify-center items-center p-4">
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent={true}
+      />
       <View className="w-full max-w-sm items-center mb-8">
         {/* Logo Circle */}
         <View className="w-48 h-48 bg-green-700 rounded-full justify-center items-center overflow-hidden">
@@ -53,8 +59,8 @@ const SignIn = () => {
           />
           <Text
             className={`absolute left-4 transition-all text-sm ${isUsernameFocused || username
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
               }`}
           >
             Username
@@ -74,8 +80,8 @@ const SignIn = () => {
           />
           <Text
             className={`absolute left-4 transition-all text-sm ${isPasswordFocused || password
-                ? "-top-2.5 text-gray-600"
-                : "top-3.5 text-gray-400"
+              ? "-top-2.5 text-gray-600"
+              : "top-3.5 text-gray-400"
               }`}
           >
             Password
