@@ -1,7 +1,23 @@
-import React from "react";
+import { usePinVerification } from "@/lib/pin-context";
+import { useRouter } from "expo-router";
+import React, { useEffect } from "react";
 import { View, Text, Image, SafeAreaView } from "react-native";
 
 export default function WalletInterface() {
+  const { isPinVerified } = usePinVerification()
+  const router = useRouter()
+
+  // If PIN is not verified, redirect to PIN entry screen
+  useEffect(() => {
+    if (!isPinVerified) {
+      router.replace("/pin")
+    }
+  }, [isPinVerified, router])
+
+  // If PIN is not verified, show nothing while redirecting
+  if (!isPinVerified) {
+    return null
+  }
   return (
     <SafeAreaView className="flex-1 bg-emerald-400">
       {/* Main Container */}

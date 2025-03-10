@@ -13,7 +13,7 @@ import {
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { registerUser } from "../lib/appwrite";
+import { registerUser } from "@/lib/appwrite";
 
 // Define your stack navigator types
 type RootStackParamList = {

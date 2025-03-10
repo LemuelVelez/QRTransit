@@ -1,9 +1,12 @@
-import { useEffect } from "react";
-import { Stack } from "expo-router";
-import { useFonts } from "expo-font";
-import * as SplashScreen from "expo-splash-screen";
+"use client"
 
-import "./globals.css";
+import { useEffect } from "react"
+import { Stack } from "expo-router"
+import { useFonts } from "expo-font"
+import * as SplashScreen from "expo-splash-screen"
+
+import "./globals.css"
+import { PinProvider } from "@/lib/pin-context"
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -13,17 +16,22 @@ export default function RootLayout() {
     "Rubik-Medium": require("../assets/fonts/Rubik-Medium.ttf"),
     "Rubik-Regular": require("../assets/fonts/Rubik-Regular.ttf"),
     "Rubik-SemiBold": require("../assets/fonts/Rubik-SemiBold.ttf"),
-  });
+  })
 
   useEffect(() => {
     if (fontsLoaded) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync()
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded])
 
   if (!fontsLoaded) {
-    return null;
+    return null
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <PinProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+    </PinProvider>
+  )
 }
+

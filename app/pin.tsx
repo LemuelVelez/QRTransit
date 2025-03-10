@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { View, Text, TouchableOpacity, Image, ActivityIndicator, Alert } from "react-native"
+import { View, Text, TouchableOpacity, Image, ActivityIndicator, Alert, StatusBar } from "react-native"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useRouter } from "expo-router"
-import { getPin, getCurrentUser } from "../lib/appwrite"
-import * as Crypto from "expo-crypto"
+import { getPin, verifyPin, getCurrentUser } from "@/lib/appwrite"
+import { usePinVerification } from "@/lib/pin-context"
 
 export default function PinEntryScreen() {
     const [pin, setPin] = useState<string>("")
@@ -14,12 +14,13 @@ export default function PinEntryScreen() {
     const [hasPin, setHasPin] = useState<boolean>(false)
     const [user, setUser] = useState<any>(null)
     const router = useRouter()
+    const { setPinVerified } = usePinVerification()
 
-    // Check if user has a PIN set
     useEffect(() => {
         async function checkUserPin() {
             try {
                 setLoading(true)
+
                 const currentUser = await getCurrentUser()
                 if (!currentUser) {
                     // No authenticated user, redirect to login
@@ -48,12 +49,12 @@ export default function PinEntryScreen() {
 
             // If PIN is complete (4 digits), verify it
             if (newPin.length === 4) {
-                verifyPin(newPin)
+                verifyPinAndProceed(newPin)
             }
         }
     }
 
-    const verifyPin = async (enteredPin: string) => {
+    const verifyPinAndProceed = async (enteredPin: string) => {
         try {
             setVerifying(true)
             const storedPin = await getPin()
@@ -62,19 +63,25 @@ export default function PinEntryScreen() {
                 // No PIN set, this is a new PIN setup
                 // In a real app, you would hash and save this PIN
                 Alert.alert("Success", "PIN setup would be completed here")
+
+                // Set PIN as verified in context
+                setPinVerified(true)
+
+                // Redirect to home
                 router.replace("/")
                 return
             }
 
-            // Hash the entered PIN to compare with stored hash
-            // Note: This is a simplified example. In a real app, you would use
-            // the same hashing algorithm and salt as used when storing the PIN
-            const hashedPin = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, enteredPin)
+            // Use the Appwrite verifyPin function instead of manual verification
+            const isPinCorrect = await verifyPin(enteredPin)
 
-            // Compare the hashed PIN with the stored hash
-            // Note: This is simplified. In a real app, you would use a secure comparison method
-            if (hashedPin === storedPin) {
-                // PIN is correct, navigate to home
+            if (isPinCorrect) {
+                console.log("PIN verified successfully")
+
+                // Set PIN as verified in context
+                setPinVerified(true)
+
+                // Redirect to home
                 router.replace("/")
             } else {
                 // PIN is incorrect
@@ -96,6 +103,11 @@ export default function PinEntryScreen() {
     const renderDots = () => {
         return (
             <View className="flex-row justify-center">
+                <StatusBar
+                    barStyle="light-content"
+                    backgroundColor="transparent"
+                    translucent={true}
+                />
                 {[0, 1, 2, 3].map((i) => (
                     <View key={i} className={`w-5 h-5 rounded-full mx-4 ${i < pin.length ? "bg-white" : "bg-white/50"}`} />
                 ))}
@@ -106,6 +118,11 @@ export default function PinEntryScreen() {
     if (loading) {
         return (
             <View className="flex-1 bg-green-400 justify-center items-center">
+                <StatusBar
+                    barStyle="light-content"
+                    backgroundColor="transparent"
+                    translucent={true}
+                />
                 <ActivityIndicator size="large" color="white" />
                 <Text className="text-white mt-4">Loading...</Text>
             </View>
@@ -114,6 +131,11 @@ export default function PinEntryScreen() {
 
     return (
         <View className="flex-1 bg-green-400 items-center">
+            <StatusBar
+                barStyle="light-content"
+                backgroundColor="transparent"
+                translucent={true}
+            />
             {/* Logo */}
             <View className="mt-32 w-full max-w-sm items-center">
                 {/* Logo Circle */}
@@ -174,4 +196,3 @@ export default function PinEntryScreen() {
         </View>
     )
 }
-

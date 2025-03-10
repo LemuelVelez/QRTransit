@@ -45,6 +45,7 @@ export async function registerUser(
       await account.createEmailPasswordSession(email, password);
 
       // Store additional user data in the database
+      // Include an empty pin field to satisfy the schema requirement
       await databases.createDocument(
         config.databaseId!,
         config.usersCollectionId!,
@@ -56,6 +57,7 @@ export async function registerUser(
           lastname: lastname,
           username: username,
           phonenumber: phonenumber,
+          pin: "", // Add an empty pin that will be updated later
         }
       );
 
@@ -169,6 +171,17 @@ export async function registerPin(pin: string) {
     if (users.documents.length === 0) {
       throw new Error("User document not found");
     }
+
+    // Update the user document with the PIN
+    const userDoc = users.documents[0];
+    await databases.updateDocument(
+      config.databaseId!,
+      config.usersCollectionId!,
+      userDoc.$id,
+      {
+        pin: hashedPin,
+      }
+    );
 
     return {
       ...currentUser,

@@ -4,22 +4,31 @@ import { Redirect, Slot } from "expo-router"
 import { ActivityIndicator } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useEffect, useState } from "react"
-import { getCurrentSession } from "../../lib/appwrite"
+import { getCurrentSession } from "@/lib/appwrite"
 
 export default function AppLayout() {
   const [isLogged, setIsLogged] = useState<boolean | null>(null)
+  const [isLoading, setIsLoading] = useState<boolean>(true)
 
   useEffect(() => {
     async function checkSession() {
-      const session = await getCurrentSession()
-      setIsLogged(!!session)
+      try {
+        // Check if user is logged in
+        const session = await getCurrentSession()
+        setIsLogged(!!session)
+        setIsLoading(false)
+      } catch (error) {
+        console.error("Error checking session:", error)
+        setIsLogged(false)
+        setIsLoading(false)
+      }
     }
 
     checkSession()
   }, [])
 
   // Still loading - session check in progress
-  if (isLogged === null) {
+  if (isLoading) {
     return (
       <SafeAreaView className="bg-transparent h-full flex justify-center items-center">
         <ActivityIndicator className="text-primary-300" size="large" />
@@ -32,7 +41,7 @@ export default function AppLayout() {
     return <Redirect href="/sign-in" />
   }
 
-  // Session exists - render the app
+  // Session exists - always render the Slot (which will include the PIN check)
   return <Slot />
 }
 
