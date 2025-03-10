@@ -10,10 +10,10 @@ import {
 import * as Crypto from "expo-crypto";
 
 export const config = {
-  endpoint: process.env.APPWRITE_ENDPOINT,
-  projectId: process.env.APPWRITE_PROJECT_ID,
-  databaseId: process.env.APPWRITE_DATABASE_ID,
-  usersCollectionId: process.env.APPWRITE_USERS_COLLECTION_ID,
+  endpoint: process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT,
+  projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
+  databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
+  usersCollectionId: process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID,
 };
 
 export const client = new Client();
