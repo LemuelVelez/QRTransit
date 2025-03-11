@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { View, Text, TouchableOpacity, Image, ActivityIndicator, Alert, StatusBar } from "react-native"
 import { MaterialCommunityIcons } from "@expo/vector-icons"
 import { useRouter } from "expo-router"
-import { getPin, verifyPin, getCurrentUser } from "@/lib/appwrite"
+import { getPin, verifyPin, getCurrentUser, getUserRoleAndRedirect, checkRoutePermission } from "@/lib/appwrite"
 import { usePinVerification } from "@/lib/pin-context"
 
 export default function PinEntryScreen() {
@@ -24,6 +24,14 @@ export default function PinEntryScreen() {
                 const currentUser = await getCurrentUser()
                 if (!currentUser) {
                     // No authenticated user, redirect to login
+                    router.replace("/sign-in")
+                    return
+                }
+
+                // Check if user has permission to access this screen
+                const hasPermission = await checkRoutePermission("passenger") // Allow both passenger and conductor roles
+                if (!hasPermission) {
+                    Alert.alert("Access Denied", "You don't have permission to access this screen.")
                     router.replace("/sign-in")
                     return
                 }
@@ -54,6 +62,19 @@ export default function PinEntryScreen() {
         }
     }
 
+    // Function to handle role-based navigation
+    const navigateBasedOnRole = (role: string) => {
+        console.log(`Navigating based on role: ${role}`)
+
+        // Use type-safe navigation based on role
+        if (role === "conductor") {
+            router.replace("/conductor")
+        } else {
+            // Default to passenger role
+            router.replace("/")
+        }
+    }
+
     const verifyPinAndProceed = async (enteredPin: string) => {
         try {
             setVerifying(true)
@@ -67,8 +88,9 @@ export default function PinEntryScreen() {
                 // Set PIN as verified in context
                 setPinVerified(true)
 
-                // Redirect to home
-                router.replace("/")
+                // Get user role and navigate accordingly
+                const { role } = await getUserRoleAndRedirect()
+                navigateBasedOnRole(role)
                 return
             }
 
@@ -81,8 +103,12 @@ export default function PinEntryScreen() {
                 // Set PIN as verified in context
                 setPinVerified(true)
 
-                // Redirect to home
-                router.replace("/")
+                // Get user role and navigate to the appropriate screen
+                const { role } = await getUserRoleAndRedirect()
+                console.log(`User role: ${role}`)
+
+                // Navigate based on role using our helper function
+                navigateBasedOnRole(role)
             } else {
                 // PIN is incorrect
                 Alert.alert("Error", "Incorrect PIN. Please try again.")
@@ -103,11 +129,7 @@ export default function PinEntryScreen() {
     const renderDots = () => {
         return (
             <View className="flex-row justify-center">
-                <StatusBar
-                    barStyle="light-content"
-                    backgroundColor="transparent"
-                    translucent={true}
-                />
+                <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
                 {[0, 1, 2, 3].map((i) => (
                     <View key={i} className={`w-5 h-5 rounded-full mx-4 ${i < pin.length ? "bg-white" : "bg-white/50"}`} />
                 ))}
@@ -118,11 +140,7 @@ export default function PinEntryScreen() {
     if (loading) {
         return (
             <View className="flex-1 bg-green-400 justify-center items-center">
-                <StatusBar
-                    barStyle="light-content"
-                    backgroundColor="transparent"
-                    translucent={true}
-                />
+                <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
                 <ActivityIndicator size="large" color="white" />
                 <Text className="text-white mt-4">Loading...</Text>
             </View>
@@ -131,11 +149,7 @@ export default function PinEntryScreen() {
 
     return (
         <View className="flex-1 bg-green-400 items-center">
-            <StatusBar
-                barStyle="light-content"
-                backgroundColor="transparent"
-                translucent={true}
-            />
+            <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
             {/* Logo */}
             <View className="mt-32 w-full max-w-sm items-center">
                 {/* Logo Circle */}
@@ -196,3 +210,4 @@ export default function PinEntryScreen() {
         </View>
     )
 }
+

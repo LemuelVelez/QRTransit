@@ -315,3 +315,93 @@ export async function getCurrentSession() {
     return null;
   }
 }
+
+/**
+ * Get the user's role and redirect based on role
+ * @returns The user's role or null if not found
+ */
+export async function getUserRoleAndRedirect() {
+  try {
+    // Get current user
+    const currentUser = await getCurrentUser()
+
+    if (!currentUser || !currentUser.$id) {
+      throw new Error("No authenticated user found")
+    }
+
+    // Find the user document
+    const users = await databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
+      Query.equal("userId", currentUser.$id),
+    ])
+
+    if (users.documents.length === 0) {
+      throw new Error("User document not found")
+    }
+
+    const userDocument = users.documents[0]
+
+    // Get the role from the user document
+    // If role doesn't exist, default to "passenger"
+    const role = userDocument.role || "passenger"
+
+    // Redirect based on role
+    if (role === "conductor") {
+      // For React Native, you would use navigation instead of window.location
+      // This is a placeholder - replace with your navigation method
+      return {
+        role: "conductor",
+        redirectTo: "/conductor",
+      }
+    } else {
+      // Default to passenger role
+      return {
+        role: "passenger",
+        redirectTo: "/",
+      }
+    }
+  } catch (error) {
+    console.error("Role verification error:", error)
+    // Default to passenger on error
+    return {
+      role: "passenger",
+      redirectTo: "/",
+    }
+  }
+}
+
+/**
+ * Check if the user has permission to access a specific route
+ * @param requiredRole The role required to access the route
+ * @returns Boolean indicating if the user has permission
+ */
+export async function checkRoutePermission(requiredRole: string) {
+  try {
+    // Get current user
+    const currentUser = await getCurrentUser()
+
+    if (!currentUser || !currentUser.$id) {
+      return false // No authenticated user
+    }
+
+    // Find the user document
+    const users = await databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
+      Query.equal("userId", currentUser.$id),
+    ])
+
+    if (users.documents.length === 0) {
+      return false // User document not found
+    }
+
+    const userDocument = users.documents[0]
+
+    // Get the role from the user document
+    // If role doesn't exist, default to "passenger"
+    const userRole = userDocument.role || "passenger"
+
+    // Check if user has the required role
+    return userRole === requiredRole
+  } catch (error) {
+    console.error("Permission check error:", error)
+    return false
+  }
+}
