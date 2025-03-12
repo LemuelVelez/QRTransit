@@ -29,7 +29,7 @@ export default function PinEntryScreen() {
                 }
 
                 // Check if user has permission to access this screen
-                const hasPermission = await checkRoutePermission("passenger") // Allow both passenger and conductor roles
+                const hasPermission = await checkRoutePermission(["passenger", "conductor"]) // Allow both passenger and conductor roles
                 if (!hasPermission) {
                     Alert.alert("Access Denied", "You don't have permission to access this screen.")
                     router.replace("/sign-in")
@@ -210,4 +210,3 @@ export default function PinEntryScreen() {
         </View>
     )
 }
-

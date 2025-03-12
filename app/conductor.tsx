@@ -1,9 +1,11 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ImageBackground, Animated } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, ImageBackground, Animated, ActivityIndicator, StatusBar, Image } from "react-native"
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera"
 import { Ionicons } from "@expo/vector-icons"
+import { useRouter } from "expo-router"
+import { getCurrentUser, checkRoutePermission, logoutUser } from "@/lib/appwrite"
 
 // Sample locations in the Philippines
 const LOCATIONS = [
@@ -29,7 +31,7 @@ const LOCATIONS = [
   "Legazpi City",
 ]
 
-export default function conductor() {
+export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
   const [showPassengerDropdown, setShowPassengerDropdown] = useState(false)
   const [from, setFrom] = useState("")
@@ -38,6 +40,7 @@ export default function conductor() {
   const [fare, setFare] = useState("")
   const [showQrScanner, setShowQrScanner] = useState(false)
   const [scanned, setScanned] = useState(false)
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false)
 
   const [fromSuggestions, setFromSuggestions] = useState<string[]>([])
   const [toSuggestions, setToSuggestions] = useState<string[]>([])
@@ -47,6 +50,33 @@ export default function conductor() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
 
   const scanLineAnim = useRef(new Animated.Value(0)).current
+
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
+
+  useEffect(() => {
+    async function checkAccess() {
+      try {
+        // Check if user has conductor role specifically
+        const hasPermission = await checkRoutePermission("conductor")
+
+        if (!hasPermission) {
+          Alert.alert("Access Denied", "You don't have permission to access this screen.")
+          // Redirect to home
+          router.replace("/")
+          return
+        }
+
+        setLoading(false)
+      } catch (error) {
+        console.error("Error checking access:", error)
+        Alert.alert("Error", "Failed to verify access permissions.")
+        router.replace("/")
+      }
+    }
+
+    checkAccess()
+  }, [])
 
   useEffect(() => {
     ; (async () => {
@@ -150,9 +180,51 @@ export default function conductor() {
     ])
   }
 
+  const handleLogout = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Logout",
+          onPress: async () => {
+            try {
+              setLoading(true)
+              const { success } = await logoutUser()
+              if (success) {
+                router.replace("/sign-in")
+              }
+            } catch (error) {
+              console.error("Logout failed:", error)
+              Alert.alert("Logout Failed", "There was a problem logging out. Please try again.")
+            } finally {
+              setLoading(false)
+            }
+          }
+        }
+      ]
+    )
+    setShowProfileDropdown(false)
+  }
+
+  if (loading) {
+    return (
+      <View className="flex-1 justify-center items-center bg-emerald-400">
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
+        <ActivityIndicator size="large" color="white" />
+        <Text className="mt-4 text-white">Verifying access...</Text>
+      </View>
+    )
+  }
+
   if (showQrScanner) {
     return (
       <View className="flex-1">
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <View className="flex-1">
           <CameraView
             className="flex-1"
@@ -222,8 +294,32 @@ export default function conductor() {
 
   return (
     <View className="flex-1 bg-emerald-400">
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
+
+      {/* Avatar with dropdown */}
+      <View className="absolute top-12 right-4 z-20">
+        <TouchableOpacity
+          onPress={() => setShowProfileDropdown(!showProfileDropdown)}
+          className="w-10 h-10 rounded-full bg-white justify-center items-center border-2 border-emerald-600"
+        >
+          <Ionicons name="person" size={20} color="#059669" />
+        </TouchableOpacity>
+
+        {showProfileDropdown && (
+          <View className="absolute top-12 right-0 bg-emerald-800 rounded-md shadow-lg w-32 z-30">
+            <TouchableOpacity
+              className="p-3 border-b border-gray-100 flex-row items-center"
+              onPress={handleLogout}
+            >
+              <Ionicons name="log-out-outline" size={18} color="white" />
+              <Text className="ml-2 color-white">Logout</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
       <ScrollView className="flex-1 p-4">
-        <View className="mb-4 mt-10">
+        <View className="mb-4 mt-16">
           <Text className="text-black text-xl font-bold mb-2">Passenger</Text>
           <TouchableOpacity
             className="flex-row items-center justify-between w-full bg-white p-4 rounded-t-md"
@@ -340,4 +436,3 @@ export default function conductor() {
     </View>
   )
 }
-

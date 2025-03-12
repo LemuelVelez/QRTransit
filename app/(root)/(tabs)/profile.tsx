@@ -10,7 +10,6 @@ import { logoutUser } from "@/lib/appwrite"
 // Define your stack navigator types
 type RootStackParamList = {
   "sign-in": undefined
-  conductor: undefined
 }
 
 const Profile = () => {
@@ -55,18 +54,6 @@ const Profile = () => {
             <Icon name="settings" size={20} color="black" />
             <Text className="text-base">Settings</Text>
           </View>
-          <Icon name="chevron-right" size={20} color="black" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="flex-row items-center justify-between py-3 border-b border-[#4aff9b] mt-30"
-          onPress={() => navigation.navigate("conductor")}
-        >
-          <View className="flex-row items-center gap-3">
-            <Icon name="directions-bus" size={20} color="black" />
-            <Text className="text-base">Conductor</Text>
-          </View>
-
           <Icon name="chevron-right" size={20} color="black" />
         </TouchableOpacity>
 

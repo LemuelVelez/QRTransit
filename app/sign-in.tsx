@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   SafeAreaView,
   Text,
@@ -14,7 +14,7 @@ import {
 import Icon from "react-native-vector-icons/MaterialIcons" // Use MaterialIcons
 import { useNavigation } from "@react-navigation/native" // Import navigation hook
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
-import { loginUser } from "@/lib/appwrite" // Import the loginUser function
+import { loginUser, getCurrentSession } from "@/lib/appwrite" // Import the loginUser and getCurrentSession functions
 
 // Define the navigation types directly within this file
 type RootStackParamList = {
@@ -31,6 +31,24 @@ const SignIn = () => {
   const [isPasswordFocused, setIsPasswordFocused] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const session = await getCurrentSession()
+        if (session) {
+          // User is already logged in, navigate to pin screen
+          navigation.navigate("pin")
+        }
+      } catch (error) {
+        console.error("Session check error:", error)
+        // No active session, stay on login page
+      }
+    }
+
+    checkSession()
+  }, [navigation])
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -160,4 +178,3 @@ const SignIn = () => {
 }
 
 export default SignIn
-

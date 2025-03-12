@@ -371,10 +371,10 @@ export async function getUserRoleAndRedirect() {
 
 /**
  * Check if the user has permission to access a specific route
- * @param requiredRole The role required to access the route
+ * @param requiredRole The role or array of roles required to access the route
  * @returns Boolean indicating if the user has permission
  */
-export async function checkRoutePermission(requiredRole: string) {
+export async function checkRoutePermission(requiredRole: string | string[]) {
   try {
     // Get current user
     const currentUser = await getCurrentUser()
@@ -398,8 +398,13 @@ export async function checkRoutePermission(requiredRole: string) {
     // If role doesn't exist, default to "passenger"
     const userRole = userDocument.role || "passenger"
 
-    // Check if user has the required role
-    return userRole === requiredRole
+    // If requiredRole is a string, check for exact match
+    if (typeof requiredRole === 'string') {
+      return userRole === requiredRole
+    }
+    
+    // If requiredRole is an array, check if userRole is in the array
+    return requiredRole.includes(userRole)
   } catch (error) {
     console.error("Permission check error:", error)
     return false
