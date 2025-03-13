@@ -200,7 +200,6 @@ const PersonalInfo = () => {
 
       <ScrollView className="flex-1 px-4">
         <View className="mt-4">
-          <Text className="text-emerald-900 font-bold text-lg mb-6">Your Profile Details</Text>
 
           {/* Avatar Section */}
           <View className="items-center mb-6">
