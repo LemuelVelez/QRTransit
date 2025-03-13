@@ -30,10 +30,6 @@ export default function WalletInterface() {
     router.push("/cash-in")
   }
 
-  const handleCashOut = () => {
-    router.push("/cash-out")
-  }
-
   return (
     <SafeAreaView className="flex-1 bg-emerald-400">
       {/* Main Container */}
@@ -91,14 +87,6 @@ export default function WalletInterface() {
                     <MaterialCommunityIcons name="cash-plus" size={32} color="white" />
                   </View>
                   <Text className="text-sm font-medium text-emerald-800">Cash In</Text>
-                </TouchableOpacity>
-
-                {/* Cash Out Button */}
-                <TouchableOpacity className="items-center" onPress={handleCashOut} activeOpacity={0.7}>
-                  <View className="h-20 w-20 bg-emerald-500 rounded-full items-center justify-center mb-2">
-                    <MaterialCommunityIcons name="cash-minus" size={32} color="white" />
-                  </View>
-                  <Text className="text-sm font-medium text-emerald-800">Cash Out</Text>
                 </TouchableOpacity>
               </View>
 
