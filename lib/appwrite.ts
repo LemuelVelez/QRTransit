@@ -5,6 +5,7 @@ import {
   Databases,
   Avatars,
   Query,
+  Storage,
 } from "react-native-appwrite";
 
 import * as Crypto from "expo-crypto";
@@ -14,6 +15,7 @@ export const config = {
   projectId: process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID,
   databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
   usersCollectionId: process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID,
+  avatarBucketId: process.env.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID,
 };
 
 export const client = new Client();
@@ -22,6 +24,7 @@ client.setEndpoint(config.endpoint!).setProject(config.projectId!);
 export const avatar = new Avatars(client);
 export const account = new Account(client);
 export const databases = new Databases(client);
+export const storage = new Storage(client);
 
 export async function registerUser(
   email: string,
@@ -277,8 +280,6 @@ export async function getCurrentUser() {
   try {
     const result = await account.get();
     if (result.$id) {
-      const userAvatar = avatar.getInitials(result.name);
-
       // Get additional user data from the database
       const users = await databases.listDocuments(
         config.databaseId!,
@@ -288,13 +289,23 @@ export async function getCurrentUser() {
 
       const userData = users.documents.length > 0 ? users.documents[0] : null;
 
+      // Use stored avatar URL if available, otherwise use generated avatar
+      const userAvatar = userData?.avatar
+        ? userData.avatar
+        : avatar
+            .getInitials(
+              `${userData?.firstname || ""} ${userData?.lastname || ""}`
+            )
+            .toString();
+
       return {
         ...result,
         firstname: userData?.firstname,
         lastname: userData?.lastname,
         username: userData?.username,
+        email: userData?.email,
         phonenumber: userData?.phonenumber,
-        avatar: userAvatar.toString(),
+        avatar: userAvatar,
       };
     }
 
@@ -302,6 +313,139 @@ export async function getCurrentUser() {
   } catch (error) {
     console.log(error);
     return null;
+  }
+}
+
+/**
+ * Update user profile information
+ * @param userData Object containing user data to update (firstname, lastname, username, email, phonenumber)
+ * @param avatarFile Optional avatar file to upload
+ * @returns The updated user data or null if operation fails
+ */
+export async function updateUserProfile(
+  userData: {
+    firstname?: string;
+    lastname?: string;
+    username?: string;
+    email?: string;
+    phonenumber?: string;
+  },
+  avatarFile?: {
+    name: string;
+    type: string;
+    size: number;
+    uri: string;
+  }
+) {
+  try {
+    // Get current user
+    const currentUser = await getCurrentUser();
+
+    if (!currentUser || !currentUser.$id) {
+      throw new Error("No authenticated user found");
+    }
+
+    // Find the user document
+    const users = await databases.listDocuments(
+      config.databaseId!,
+      config.usersCollectionId!,
+      [Query.equal("userId", currentUser.$id)]
+    );
+
+    if (users.documents.length === 0) {
+      throw new Error("User document not found");
+    }
+
+    // Prepare update data
+    const updateData: Record<string, any> = {};
+
+    if (userData.firstname) updateData.firstname = userData.firstname;
+    if (userData.lastname) updateData.lastname = userData.lastname;
+    if (userData.username) updateData.username = userData.username;
+    if (userData.email) updateData.email = userData.email;
+    if (userData.phonenumber) updateData.phonenumber = userData.phonenumber;
+
+    // Handle avatar upload if provided
+    let avatarUrl = currentUser.avatar;
+
+    if (avatarFile) {
+      try {
+        // Validate bucket ID exists before attempting upload
+        const bucketId = config.avatarBucketId;
+
+        if (!bucketId) {
+          console.error("Avatar upload error: Missing bucket ID configuration");
+          throw new Error("Missing bucket ID configuration");
+        }
+
+        console.log("Using bucket ID:", bucketId); // Debug log
+
+        // Delete the existing avatar file if it exists
+        if (currentUser.avatar) {
+          try {
+            // Extract the file ID from the avatar URL
+            // The URL format is typically: https://cloud.appwrite.io/v1/storage/buckets/{bucketId}/files/{fileId}/view
+            const fileIdMatch = currentUser.avatar.match(
+              /files\/([^/]+)\/view/
+            );
+
+            if (fileIdMatch && fileIdMatch[1]) {
+              const oldFileId = fileIdMatch[1];
+
+              // Delete the old file
+              await storage.deleteFile(bucketId, oldFileId);
+              console.log("Deleted old avatar file:", oldFileId);
+            }
+          } catch (deleteError) {
+            // Log but continue if deletion fails
+            console.error("Failed to delete old avatar:", deleteError);
+          }
+        }
+
+        // Generate a unique file ID
+        const fileId = ID.unique();
+
+        // Upload the file to the avatars bucket
+        const uploadResult = await storage.createFile(
+          bucketId,
+          fileId,
+          avatarFile
+        );
+
+        // Get the file URL
+        const fileUrl = storage.getFileView(bucketId, uploadResult.$id);
+
+        // Update the avatar URL in the database
+        updateData.avatar = fileUrl.href;
+        avatarUrl = fileUrl.href;
+      } catch (uploadError) {
+        console.error("Avatar upload error:", uploadError);
+        // Continue with other updates even if avatar upload fails
+      }
+    }
+
+    // Update the user document
+    const userDoc = users.documents[0];
+    await databases.updateDocument(
+      config.databaseId!,
+      config.usersCollectionId!,
+      userDoc.$id,
+      updateData
+    );
+
+    // If name components are being updated, update the name in the account
+    if (userData.firstname && userData.lastname) {
+      await account.updateName(`${userData.firstname} ${userData.lastname}`);
+    }
+
+    return {
+      ...currentUser,
+      ...userData,
+      avatar: avatarUrl,
+    };
+  } catch (error) {
+    console.error("Profile update error:", error);
+    throw error;
   }
 }
 
@@ -323,26 +467,28 @@ export async function getCurrentSession() {
 export async function getUserRoleAndRedirect() {
   try {
     // Get current user
-    const currentUser = await getCurrentUser()
+    const currentUser = await getCurrentUser();
 
     if (!currentUser || !currentUser.$id) {
-      throw new Error("No authenticated user found")
+      throw new Error("No authenticated user found");
     }
 
     // Find the user document
-    const users = await databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
-      Query.equal("userId", currentUser.$id),
-    ])
+    const users = await databases.listDocuments(
+      config.databaseId!,
+      config.usersCollectionId!,
+      [Query.equal("userId", currentUser.$id)]
+    );
 
     if (users.documents.length === 0) {
-      throw new Error("User document not found")
+      throw new Error("User document not found");
     }
 
-    const userDocument = users.documents[0]
+    const userDocument = users.documents[0];
 
     // Get the role from the user document
     // If role doesn't exist, default to "passenger"
-    const role = userDocument.role || "passenger"
+    const role = userDocument.role || "passenger";
 
     // Redirect based on role
     if (role === "conductor") {
@@ -351,21 +497,21 @@ export async function getUserRoleAndRedirect() {
       return {
         role: "conductor",
         redirectTo: "/conductor",
-      }
+      };
     } else {
       // Default to passenger role
       return {
         role: "passenger",
         redirectTo: "/",
-      }
+      };
     }
   } catch (error) {
-    console.error("Role verification error:", error)
+    console.error("Role verification error:", error);
     // Default to passenger on error
     return {
       role: "passenger",
       redirectTo: "/",
-    }
+    };
   }
 }
 
@@ -377,36 +523,38 @@ export async function getUserRoleAndRedirect() {
 export async function checkRoutePermission(requiredRole: string | string[]) {
   try {
     // Get current user
-    const currentUser = await getCurrentUser()
+    const currentUser = await getCurrentUser();
 
     if (!currentUser || !currentUser.$id) {
-      return false // No authenticated user
+      return false; // No authenticated user
     }
 
     // Find the user document
-    const users = await databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
-      Query.equal("userId", currentUser.$id),
-    ])
+    const users = await databases.listDocuments(
+      config.databaseId!,
+      config.usersCollectionId!,
+      [Query.equal("userId", currentUser.$id)]
+    );
 
     if (users.documents.length === 0) {
-      return false // User document not found
+      return false; // User document not found
     }
 
-    const userDocument = users.documents[0]
+    const userDocument = users.documents[0];
 
     // Get the role from the user document
     // If role doesn't exist, default to "passenger"
-    const userRole = userDocument.role || "passenger"
+    const userRole = userDocument.role || "passenger";
 
     // If requiredRole is a string, check for exact match
-    if (typeof requiredRole === 'string') {
-      return userRole === requiredRole
+    if (typeof requiredRole === "string") {
+      return userRole === requiredRole;
     }
-    
+
     // If requiredRole is an array, check if userRole is in the array
-    return requiredRole.includes(userRole)
+    return requiredRole.includes(userRole);
   } catch (error) {
-    console.error("Permission check error:", error)
-    return false
+    console.error("Permission check error:", error);
+    return false;
   }
 }
