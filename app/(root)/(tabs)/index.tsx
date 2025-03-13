@@ -1,7 +1,10 @@
-import { usePinVerification } from "@/lib/pin-context";
-import { useRouter } from "expo-router";
-import React, { useEffect } from "react";
-import { View, Text, Image, SafeAreaView } from "react-native";
+"use client"
+
+import { usePinVerification } from "@/lib/pin-context"
+import { useRouter } from "expo-router"
+import { useEffect } from "react"
+import { View, Text, Image, SafeAreaView, TouchableOpacity } from "react-native"
+import { MaterialCommunityIcons } from "@expo/vector-icons"
 
 export default function WalletInterface() {
   const { isPinVerified } = usePinVerification()
@@ -18,6 +21,22 @@ export default function WalletInterface() {
   if (!isPinVerified) {
     return null
   }
+
+  const handleSendMoney = () => {
+    // Handle send money functionality
+    console.log("Send Money pressed")
+  }
+
+  const handleCashIn = () => {
+    // Handle cash in functionality
+    console.log("Cash In pressed")
+  }
+
+  const handleCashOut = () => {
+    // Handle cash out functionality
+    console.log("Cash Out pressed")
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-emerald-400">
       {/* Main Container */}
@@ -32,9 +51,7 @@ export default function WalletInterface() {
                 resizeMode="cover"
               />
             </View>
-            <Text className="text-lg font-medium text-emerald-900">
-              QR-Coded Bus Ticketing System
-            </Text>
+            <Text className="text-lg font-medium text-emerald-900">QR-Coded Bus Ticketing System</Text>
           </View>
         </View>
 
@@ -51,31 +68,50 @@ export default function WalletInterface() {
             {/* Balance Section */}
             <View className="bg-emerald-600 px-4 py-3">
               <View className="gap-1">
-                <Text className="text-sm text-emerald-100">
-                  Available balance
-                </Text>
-                <Text className="text-3xl font-semibold text-white">
-                  ₱200,000
-                </Text>
+                <Text className="text-sm text-emerald-100">Available balance</Text>
+                <Text className="text-3xl font-semibold text-white">₱200,000</Text>
               </View>
             </View>
 
-            {/* Send Section */}
-            <View className="h-96 p-4 bg-emerald-200">
-              <View className="items-center gap-2 w-16">
-                <Image
-                  source={require("../../../assets/images/Peso.png")}
-                  className="h-20 w-20"
-                  resizeMode="contain"
-                />
-                <Text className="text-sm font-medium text-emerald-800">
-                  Send
-                </Text>
+            {/* Action Buttons Section */}
+            <View className="p-4 bg-emerald-200">
+              <View className="flex-row justify-around">
+                {/* Send Money Button */}
+                <TouchableOpacity className="items-center" onPress={handleSendMoney} activeOpacity={0.7}>
+                  <View className="h-20 w-20 items-center justify-center mb-2">
+                    <Image
+                      source={require("../../../assets/images/Peso.png")}
+                      className="h-20 w-20"
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <Text className="text-sm font-medium text-emerald-800">Send Money</Text>
+                </TouchableOpacity>
+
+                {/* Cash In Button */}
+                <TouchableOpacity className="items-center" onPress={handleCashIn} activeOpacity={0.7}>
+                  <View className="h-20 w-20 bg-emerald-500 rounded-full items-center justify-center mb-2">
+                    <MaterialCommunityIcons name="cash-plus" size={32} color="white" />
+                  </View>
+                  <Text className="text-sm font-medium text-emerald-800">Cash In</Text>
+                </TouchableOpacity>
+
+                {/* Cash Out Button */}
+                <TouchableOpacity className="items-center" onPress={handleCashOut} activeOpacity={0.7}>
+                  <View className="h-20 w-20 bg-emerald-500 rounded-full items-center justify-center mb-2">
+                    <MaterialCommunityIcons name="cash-minus" size={32} color="white" />
+                  </View>
+                  <Text className="text-sm font-medium text-emerald-800">Cash Out</Text>
+                </TouchableOpacity>
               </View>
+
+              {/* Additional content can go here */}
+              <View className="h-64 mt-4">{/* Placeholder for transaction history or other features */}</View>
             </View>
           </View>
         </View>
       </View>
     </SafeAreaView>
-  );
+  )
 }
+
