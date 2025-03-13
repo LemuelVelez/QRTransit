@@ -23,18 +23,15 @@ export default function WalletInterface() {
   }
 
   const handleSendMoney = () => {
-    // Handle send money functionality
-    console.log("Send Money pressed")
+    router.push("/send-money")
   }
 
   const handleCashIn = () => {
-    // Handle cash in functionality
-    console.log("Cash In pressed")
+    router.push("/cash-in")
   }
 
   const handleCashOut = () => {
-    // Handle cash out functionality
-    console.log("Cash Out pressed")
+    router.push("/cash-out")
   }
 
   return (
