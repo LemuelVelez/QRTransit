@@ -1,25 +1,22 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { View, Text, TouchableOpacity, FlatList, SafeAreaView, TextInput, ActivityIndicator } from "react-native"
-import { Ionicons } from "@expo/vector-icons"
-import { getUserTransactions } from "@/lib/transaction-service"
-import { getCurrentUser } from "@/lib/appwrite"
+import { View, Text, TouchableOpacity, FlatList, SafeAreaView, ActivityIndicator } from "react-native"
+import { getAllUserTransactions, getAuthUserId, fixTransactionUserIds } from "@/lib/transaction-service"
 
-// Updated transaction type to only have completed or failed status
+// Updated transaction type to match our new model without status
 type Transaction = {
   id: string
   date: string
   time: string
-  description: string
-  amount: number
   type: string
+  amount: number
   reference?: string
+  balance?: number // Added balance field
 }
 
 export default function TransactionHistory() {
-  const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
+  const [searchQuery] = useState("")
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -31,29 +28,47 @@ export default function TransactionHistory() {
     }),
   )
 
+  // Format transaction type to be more readable
+  const formatTransactionType = (type: string): string => {
+    switch (type) {
+      case "CASH_IN":
+        return "Cash In"
+      case "CASH_OUT":
+        return "Cash Out"
+      case "SEND":
+        return "Send"
+      case "RECEIVE":
+        return "Receive"
+      default:
+        return type.replace("_", " ")
+    }
+  }
+
   // Load transactions from Appwrite
   const loadTransactions = async () => {
     try {
       setLoading(true)
-      const user = await getCurrentUser()
 
-      if (!user) {
+      // Get the auth user ID directly instead of using getCurrentUser
+      // This ensures we're using the same ID as in transaction-service.ts
+      const authUserId = await getAuthUserId()
+
+      if (!authUserId) {
         console.log("No authenticated user found")
         setTransactions([])
         return
       }
 
-      const appwriteTransactions = await getUserTransactions()
+      console.log("Loading transactions for auth user ID:", authUserId)
+
+      // Use the getAllUserTransactions function which now uses the correct auth user ID
+      const appwriteTransactions = await getAllUserTransactions()
+
+      console.log(`Retrieved ${appwriteTransactions.length} transactions`)
 
       // Convert Appwrite transactions to match your UI format
       const formattedTransactions: Transaction[] = appwriteTransactions.map((transaction) => {
         const date = new Date(transaction.timestamp)
-
-        // Map any "pending" status to "failed" or handle as needed
-        let status = transaction.status.toLowerCase()
-        if (status !== "completed") {
-          status = "failed"
-        }
 
         return {
           id: transaction.id,
@@ -67,14 +82,13 @@ export default function TransactionHistory() {
             minute: "2-digit",
             hour12: true,
           }),
-          description:
-            transaction.type.replace("_", " ").charAt(0) + transaction.type.replace("_", " ").slice(1).toLowerCase(),
+          // Use only the transaction type, not the description
+          type: transaction.type,
           // For CASH_IN and RECEIVE, amount is positive; for CASH_OUT and SEND, amount is negative
           amount:
             transaction.type === "CASH_IN" || transaction.type === "RECEIVE" ? transaction.amount : -transaction.amount,
-          status: status as "completed" | "failed",
-          type: transaction.type,
           reference: transaction.reference,
+          balance: transaction.balance, // Include the balance
         }
       })
 
@@ -111,7 +125,7 @@ export default function TransactionHistory() {
   const filteredTransactions = Object.entries(groupedTransactions).filter(([date, transactions]) => {
     return transactions.some(
       (transaction) =>
-        transaction.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        transaction.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
         transaction.amount.toString().includes(searchQuery) ||
         (transaction.reference && transaction.reference.toLowerCase().includes(searchQuery.toLowerCase())),
     )
@@ -130,9 +144,12 @@ export default function TransactionHistory() {
     <TouchableOpacity className="p-3 bg-gray-50 rounded-lg mb-2 active:bg-gray-100">
       <View className="flex-row justify-between items-start">
         <View>
-          <Text className="font-medium">{transaction.description}</Text>
+          <Text className="font-medium">{formatTransactionType(transaction.type)}</Text>
           <Text className="text-sm text-gray-500">{transaction.time}</Text>
           {transaction.reference && <Text className="text-xs text-gray-400">Ref: {transaction.reference}</Text>}
+          {transaction.balance !== undefined && (
+            <Text className="text-xs text-gray-500">Balance: {formatPeso(transaction.balance)}</Text>
+          )}
         </View>
         <View className="items-end">
           <Text className={`font-mono text-lg ${transaction.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>
@@ -157,33 +174,27 @@ export default function TransactionHistory() {
     </View>
   )
 
+  // Fix transactions function
+  const handleFixTransactions = async () => {
+    try {
+      setLoading(true)
+      const count = await fixTransactionUserIds()
+      console.log(`Fixed ${count} transactions`)
+      await loadTransactions()
+    } catch (error) {
+      console.error("Error fixing transactions:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-emerald-500">
       <View className="flex-1 bg-white mt-8">
         <View className="bg-emerald-500 p-4">
           <View className="flex-row justify-between items-center mb-2">
             <Text className="text-2xl font-bold text-white">Transaction</Text>
-            <View className="flex-row">
-              <TouchableOpacity
-                className="mr-2 p-2 bg-emerald-600 rounded-full"
-                onPress={() => setIsSearchOpen(!isSearchOpen)}
-              >
-                <Ionicons name="search" size={20} color="white" />
-              </TouchableOpacity>
-              <TouchableOpacity className="p-2 bg-emerald-600 rounded-full">
-                <Ionicons name="filter" size={20} color="white" />
-              </TouchableOpacity>
-            </View>
           </View>
-          {isSearchOpen && (
-            <TextInput
-              className="bg-white/10 border border-white/20 text-white p-2 rounded-lg"
-              placeholder="Search transactions..."
-              placeholderTextColor="rgba(255, 255, 255, 0.6)"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          )}
         </View>
         <View className="px-4 py-2 bg-emerald-600/50">
           <Text className="text-sm text-white">As of {currentDate}</Text>
@@ -205,9 +216,14 @@ export default function TransactionHistory() {
             ListEmptyComponent={
               <View className="p-8 items-center">
                 <Text className="text-gray-500">No transactions found</Text>
-                <TouchableOpacity className="mt-4 bg-emerald-500 px-4 py-2 rounded-lg" onPress={handleRefresh}>
-                  <Text className="text-white">Refresh</Text>
-                </TouchableOpacity>
+                <View className="flex-row mt-4 space-x-2">
+                  <TouchableOpacity className="bg-emerald-500 px-4 py-2 rounded-lg" onPress={handleRefresh}>
+                    <Text className="text-white">Refresh</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity className="bg-blue-500 px-4 py-2 rounded-lg" onPress={handleFixTransactions}>
+                    <Text className="text-white">Fix Transactions</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             }
           />
