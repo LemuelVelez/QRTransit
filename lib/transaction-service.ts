@@ -320,15 +320,49 @@ export async function createTransactionNotification(
   specificUserId?: string
 ): Promise<void> {
   try {
-    const notificationData = transactionToNotification(transaction);
+    const databaseId = config.databaseId;
+    const collectionId = getNotificationsCollectionId();
+
+    if (!databaseId || !collectionId) {
+      throw new Error("Appwrite configuration missing");
+    }
 
     // Use the specificUserId if provided, otherwise use the transaction's userId
     const userId = specificUserId || transaction.userId;
+
+    // Check if a notification for this transaction already exists for this user
+    try {
+      const existingNotifications = await databases.listDocuments(
+        databaseId,
+        collectionId,
+        [
+          Query.equal("transactionId", transaction.id),
+          Query.equal("userId", userId),
+          Query.limit(1),
+        ]
+      );
+
+      if (existingNotifications.documents.length > 0) {
+        console.log(
+          `Notification for transaction ${transaction.id} and user ${userId} already exists. Skipping duplicate.`
+        );
+        return; // Exit early if notification already exists
+      }
+    } catch (checkError) {
+      console.error("Error checking for existing notification:", checkError);
+      // Continue with notification creation even if check fails
+    }
+
+    const notificationData = transactionToNotification(transaction);
 
     await createNotification({
       ...notificationData,
       userId: userId,
     });
+
+    console.log(
+      `Notification for transaction ${transaction.id} created for user ${userId}`
+    );
   } catch (error) {
     console.error("Error creating transaction notification:", error);
   }
@@ -397,6 +431,25 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
       throw new Error("Appwrite configuration missing");
     }
 
+    // Check if a transaction with this ID already exists
+    try {
+      const existingTransactions = await databases.listDocuments(
+        databaseId,
+        collectionId,
+        [Query.equal("transactionId", transaction.id), Query.limit(1)]
+      );
+
+      if (existingTransactions.documents.length > 0) {
+        console.log(
+          `Transaction with ID ${transaction.id} already exists. Skipping duplicate.`
+        );
+        return; // Exit early if transaction already exists
+      }
+    } catch (checkError) {
+      console.error("Error checking for existing transaction:", checkError);
+      // Continue with transaction creation even if check fails
+    }
+
     // Calculate the new balance
     const balance = await calculateNewBalance(transaction.userId, transaction);
 
@@ -414,6 +467,8 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
       balance: balance.toString(), // Store the running balance
       recipientId: transaction.recipientId || "", // Store recipient ID for SEND transactions
     });
+
+    console.log(`Transaction ${transaction.id} saved successfully`);
   } catch (error) {
     console.error("Error saving transaction to Appwrite:", error);
     throw error;
@@ -750,8 +805,11 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
       // First try exact matches on any field
       for (const doc of response.documents) {
         for (const [key, value] of Object.entries(doc)) {
+          // Add null/undefined check before calling toLowerCase()
           if (
             typeof value === "string" &&
+            value && // Check that value is not empty
+            searchTerm && // Check that searchTerm is not empty
             value.toLowerCase() === searchTerm.toLowerCase()
           ) {
             console.log(`Found user by flexible exact match on ${key}:`, {
@@ -768,9 +826,16 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
 
       // Then try partial matches (e.g., if user entered partial name or number)
       for (const doc of response.documents) {
-        // Check firstname + lastname combination
-        const fullName = `${doc.firstname || ""} ${doc.lastname || ""}`.trim();
-        if (fullName.toLowerCase().includes(searchTerm.toLowerCase())) {
+        // Check firstname + lastname combination with null checks
+        const firstName = doc.firstname || "";
+        const lastName = doc.lastname || "";
+        const fullName = `${firstName} ${lastName}`.trim();
+
+        if (
+          searchTerm &&
+          fullName &&
+          fullName.toLowerCase().includes(searchTerm.toLowerCase())
+        ) {
           console.log(`Found user by partial name match:`, {
             docId: doc.$id,
             userId: doc.userId,
@@ -781,10 +846,12 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
           return doc;
         }
 
-        // Check other fields for partial matches
+        // Check other fields for partial matches with null checks
         for (const [key, value] of Object.entries(doc)) {
           if (
             typeof value === "string" &&
+            value && // Check that value is not empty
+            searchTerm && // Check that searchTerm is not empty
             value.toLowerCase().includes(searchTerm.toLowerCase()) &&
             fieldNamesToSearch.includes(key)
           ) {
