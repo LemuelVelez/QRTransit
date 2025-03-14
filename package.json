@@ -86,7 +86,8 @@
           "metro-config",
           "metro-resolver",
           "react-native-appwrite"
-        ]
+        ],
+        "listUnknownPackages": false
       }
     }
   },
