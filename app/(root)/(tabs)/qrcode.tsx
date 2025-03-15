@@ -139,7 +139,7 @@ export default function QRCodeDisplay() {
   const qrValue = JSON.stringify({
     userId: userId,
     name: userName,
-    timestamp: Date.now(),
+    timestamp: new Date().toISOString(), // Use ISO string for timestamp
   })
 
   // Handle payment confirmation
