@@ -15,8 +15,63 @@ interface QRScannerProps {
 export default function QRScanner({ onScan, onClose, scanned }: QRScannerProps) {
   const [flash, setFlash] = useState(false)
   const [detecting, setDetecting] = useState(false)
+  const [zoomLevel, setZoomLevel] = useState(0) // Start with no zoom
   const scanLineAnim = useRef(new Animated.Value(0)).current
   const pulseAnim = useRef(new Animated.Value(1)).current
+  const scanAttempts = useRef(0)
+  const lastPartialDetection = useRef<number | null>(null)
+
+  // Convert zoom level to actual zoom value (0-1)
+  const actualZoom = Math.min(Math.max(zoomLevel, 0), 1)
+
+  // Auto-zoom logic
+  useEffect(() => {
+    if (scanned) return
+
+    // Initialize scan timer for auto-zoom adjustments
+    const scanTimer = setInterval(() => {
+      if (scanned) return
+
+      scanAttempts.current += 1
+
+      // Auto-zoom strategy:
+      // 1. Start with no zoom (0)
+      // 2. After 3 seconds with no detection, increase zoom slightly
+      // 3. After 6 seconds, try a medium zoom
+      // 4. After 9 seconds, reset to no zoom and repeat cycle
+
+      if (scanAttempts.current % 9 === 3) {
+        // After 3 seconds, try slight zoom (0.3)
+        setZoomLevel(0.3)
+      } else if (scanAttempts.current % 9 === 6) {
+        // After 6 seconds, try medium zoom (0.5)
+        setZoomLevel(0.5)
+      } else if (scanAttempts.current % 9 === 0) {
+        // After 9 seconds, reset to no zoom
+        setZoomLevel(0)
+      }
+
+      // If we had a partial detection recently, try a different zoom level
+      if (lastPartialDetection.current !== null) {
+        const timeSincePartial = Date.now() - lastPartialDetection.current
+
+        // If partial detection was within last 2 seconds
+        if (timeSincePartial < 2000) {
+          // Adjust zoom based on current level - try to find optimal level
+          if (zoomLevel < 0.3) {
+            setZoomLevel(0.4)
+          } else if (zoomLevel < 0.6) {
+            setZoomLevel(0.7)
+          } else {
+            setZoomLevel(0.2) // Try a lower zoom if higher levels didn't work
+          }
+          lastPartialDetection.current = null
+        }
+      }
+    }, 1000) // Check every second
+
+    return () => clearInterval(scanTimer)
+  }, [scanned, zoomLevel])
 
   useEffect(() => {
     if (!scanned) {
@@ -66,6 +121,15 @@ export default function QRScanner({ onScan, onClose, scanned }: QRScannerProps) 
 
   // Handle barcode detection
   const handleBarcodeDetected = (result: BarcodeScanningResult) => {
+    // Reset scan attempts on successful detection
+    scanAttempts.current = 0
+
+    // If we get a partial detection (low confidence or incomplete data)
+    if (result.data && result.data.length < 4) {
+      lastPartialDetection.current = Date.now()
+      return
+    }
+
     setDetecting(true)
     // Reset detection state after a short delay
     setTimeout(() => setDetecting(false), 1000)
@@ -80,7 +144,7 @@ export default function QRScanner({ onScan, onClose, scanned }: QRScannerProps) 
         facing="back"
         enableTorch={flash}
         autofocus="on"
-        zoom={0.5} // Medium zoom level for better QR detection
+        zoom={actualZoom}
         barcodeScannerSettings={{
           barcodeTypes: ["qr", "code128", "code39", "ean13", "pdf417"],
         }}
