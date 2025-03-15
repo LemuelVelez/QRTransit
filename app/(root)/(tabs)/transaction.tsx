@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react"
 import { View, Text, TouchableOpacity, FlatList, SafeAreaView, ActivityIndicator } from "react-native"
-import { getAllUserTransactions, getAuthUserId, fixTransactionUserIds } from "@/lib/transaction-service"
+import { getAllUserTransactions, getAuthUserId } from "@/lib/transaction-service"
 
 // Updated transaction type to match our new model without status
 type Transaction = {
@@ -174,22 +174,8 @@ export default function TransactionHistory() {
     </View>
   )
 
-  // Fix transactions function
-  const handleFixTransactions = async () => {
-    try {
-      setLoading(true)
-      const count = await fixTransactionUserIds()
-      console.log(`Fixed ${count} transactions`)
-      await loadTransactions()
-    } catch (error) {
-      console.error("Error fixing transactions:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
-    <SafeAreaView className="flex-1 bg-emerald-500">
+    <SafeAreaView className="flex-1 mb-[50px] bg-emerald-500">
       <View className="flex-1 bg-white mt-8">
         <View className="bg-emerald-500 p-4">
           <View className="flex-row justify-between items-center mb-2">
@@ -216,14 +202,6 @@ export default function TransactionHistory() {
             ListEmptyComponent={
               <View className="p-8 items-center">
                 <Text className="text-gray-500">No transactions found</Text>
-                <View className="flex-row mt-4 space-x-2">
-                  <TouchableOpacity className="bg-emerald-500 px-4 py-2 rounded-lg" onPress={handleRefresh}>
-                    <Text className="text-white">Refresh</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity className="bg-blue-500 px-4 py-2 rounded-lg" onPress={handleFixTransactions}>
-                    <Text className="text-white">Fix Transactions</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             }
           />
