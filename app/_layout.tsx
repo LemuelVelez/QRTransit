@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { Stack } from "expo-router"
 import { useFonts } from "expo-font"
 import * as SplashScreen from "expo-splash-screen"
+import { StatusBar } from "react-native"
 
 import "./globals.css"
 import { PinProvider } from "@/lib/pin-context"
@@ -30,6 +31,7 @@ export default function RootLayout() {
 
   return (
     <PinProvider>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
       <Stack screenOptions={{ headerShown: false }} />
     </PinProvider>
   )
