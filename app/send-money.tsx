@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
     View,
     Text,
@@ -16,7 +16,7 @@ import {
 } from "react-native"
 import { useRouter } from "expo-router"
 import { FontAwesome, Ionicons } from "@expo/vector-icons"
-import { createSendTransaction } from "../lib/transaction-service"
+import { createSendTransaction, getCurrentUserBalance } from "../lib/transaction-service"
 
 export default function SendMoneyScreen() {
     const router = useRouter()
@@ -25,6 +25,25 @@ export default function SendMoneyScreen() {
     const [note, setNote] = useState("")
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState("")
+    const [currentBalance, setCurrentBalance] = useState(0)
+    const [isLoadingBalance, setIsLoadingBalance] = useState(true)
+
+    // Fetch current balance when component mounts
+    useEffect(() => {
+        const fetchBalance = async () => {
+            try {
+                setIsLoadingBalance(true)
+                const balance = await getCurrentUserBalance()
+                setCurrentBalance(balance)
+            } catch (error) {
+                console.error("Error fetching balance:", error)
+            } finally {
+                setIsLoadingBalance(false)
+            }
+        }
+
+        fetchBalance()
+    }, [])
 
     const validateForm = () => {
         // Reset error state
@@ -45,6 +64,12 @@ export default function SendMoneyScreen() {
         const numAmount = Number.parseFloat(amount)
         if (isNaN(numAmount) || numAmount <= 0) {
             setError("Please enter a valid amount greater than 0")
+            return false
+        }
+
+        // Check if user has sufficient balance
+        if (numAmount > currentBalance) {
+            setError(`Insufficient balance. Your current balance is ₱${currentBalance.toFixed(2)}`)
             return false
         }
 
@@ -78,6 +103,8 @@ export default function SendMoneyScreen() {
             if (error instanceof Error) {
                 if (error.message.includes("Recipient not found")) {
                     errorMessage = `Recipient "${recipient}" not found. Please check the name or number and try again.`
+                } else if (error.message.includes("Insufficient balance")) {
+                    errorMessage = error.message
                 } else if (error.message.includes("Invalid query")) {
                     errorMessage = "There was a problem with the database query. Please contact support."
                 } else {
@@ -103,6 +130,16 @@ export default function SendMoneyScreen() {
                             <Ionicons name="arrow-back" size={24} color="#065f46" />
                         </TouchableOpacity>
                         <Text className="text-xl font-bold text-emerald-900">Send Money</Text>
+                    </View>
+
+                    {/* Current Balance */}
+                    <View className="mx-6 mt-4 bg-emerald-50 p-3 rounded-lg border border-emerald-200">
+                        <Text className="text-emerald-800 font-medium">Current Balance</Text>
+                        {isLoadingBalance ? (
+                            <ActivityIndicator size="small" color="#059669" />
+                        ) : (
+                            <Text className="text-emerald-700 font-bold text-lg">₱{currentBalance.toFixed(2)}</Text>
+                        )}
                     </View>
 
                     {/* Form */}

@@ -714,6 +714,16 @@ export async function createSendTransaction(
   try {
     const senderAuthUserId = await getAuthUserId();
 
+    // Check if user has sufficient balance before sending
+    const currentBalance = await getCurrentUserBalance();
+    if (currentBalance < amount) {
+      throw new Error(
+        `Insufficient balance. Your current balance is ₱${currentBalance.toFixed(
+          2
+        )}`
+      );
+    }
+
     const currentUser = await getCurrentUser();
     if (!currentUser) {
       throw new Error("No authenticated user found");
