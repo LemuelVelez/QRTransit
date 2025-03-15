@@ -1,7 +1,7 @@
 "use client"
 
 import { Redirect, Slot } from "expo-router"
-import { ActivityIndicator } from "react-native"
+import { ActivityIndicator, StatusBar, Image, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useEffect, useState } from "react"
 import { getCurrentSession } from "@/lib/appwrite"
@@ -31,7 +31,15 @@ export default function AppLayout() {
   if (isLoading) {
     return (
       <SafeAreaView className="bg-transparent h-full flex justify-center items-center">
-        <ActivityIndicator className="text-primary-300" size="large" />
+        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+        <View className="items-center">
+          <Image
+            source={require("../../assets/images/QuickRide.png")}
+            style={{ width: 300, height: 160, resizeMode: "contain", marginBottom: 24 }}
+            accessibilityLabel="QuickRide Logo"
+          />
+          <ActivityIndicator className="text-primary-300" size="large" />
+        </View>
       </SafeAreaView>
     )
   }
