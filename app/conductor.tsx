@@ -1,18 +1,19 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { View, Text, ScrollView, Alert, ActivityIndicator, StatusBar } from "react-native"
+import { View, Text, ScrollView, Alert, ActivityIndicator, StatusBar, TouchableOpacity } from "react-native"
 import { useCameraPermissions, type BarcodeScanningResult } from "expo-camera"
 import { useRouter } from "expo-router"
 import { checkRoutePermission } from "@/lib/appwrite"
 import { getCurrentUser } from "@/lib/appwrite"
+import { getActiveRoute } from "@/lib/route-service"
+import { generateTransactionId, saveTransaction } from "@/lib/transaction-history-service"
 
 import ProfileDropdown from "@/components/profile-dropdown"
 import PassengerTypeSelector from "@/components/passenger-type-selector"
 import LocationInput from "@/components/location-input"
-import FareCalculator from "@/components/fare-calculator"
+import ModifiedFareCalculator from "@/components/fare-calculator"
 import QRScanner from "@/components/qr-scanner"
-import QRButton from "@/components/qr-button"
 import PaymentConfirmation from "@/components/payment-confirmation"
 import { parseQRData, processPayment } from "@/lib/qr-payment-service"
 import {
@@ -21,30 +22,8 @@ import {
   updatePaymentRequestStatus,
   type PaymentRequest,
 } from "@/lib/appwrite-payment-service"
-
-// Sample locations in the Philippines
-const LOCATIONS = [
-  "Manila",
-  "Quezon City",
-  "Cebu City",
-  "Davao City",
-  "Makati",
-  "Baguio",
-  "Tagaytay",
-  "Boracay",
-  "Palawan",
-  "Vigan",
-  "Iloilo City",
-  "Bacolod",
-  "Zamboanga City",
-  "Cagayan de Oro",
-  "Bohol",
-  "Siargao",
-  "Batangas",
-  "Subic",
-  "Clark",
-  "Legazpi City",
-]
+import { Ionicons } from "@expo/vector-icons"
+import CameraCapture from "@/components/camera-capture"
 
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
@@ -53,10 +32,14 @@ export default function ConductorScreen() {
   const [kilometer, setKilometer] = useState("")
   const [fare, setFare] = useState("")
   const [showQrScanner, setShowQrScanner] = useState(false)
+  const [showCameraCapture, setShowCameraCapture] = useState(false)
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [scanned, setScanned] = useState(false)
   const [loading, setLoading] = useState(true)
   const [conductorId, setConductorId] = useState("")
   const [conductorName, setConductorName] = useState("Conductor")
+  const [paymentMethod, setPaymentMethod] = useState<"QR" | "Cash">("QR")
+  const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string } | null>(null)
 
   // Payment confirmation state
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
@@ -93,6 +76,24 @@ export default function ConductorScreen() {
                 ? `${user.firstname} ${user.lastname}`
                 : user.username || user.email || "Conductor",
             )
+
+            // Load active route
+            const activeRoute = await getActiveRoute(user.$id || "")
+            if (activeRoute) {
+              setRouteInfo({
+                from: activeRoute.from,
+                to: activeRoute.to,
+                busNumber: activeRoute.busNumber,
+              })
+              setFrom(activeRoute.from)
+              setTo(activeRoute.to)
+            } else {
+              // No active route, redirect to route setup
+              router.replace({
+                pathname: "/conductor/route-setup" as any,
+              })
+              return
+            }
           }
         } catch (userError) {
           console.error("Error loading conductor data:", userError)
@@ -217,6 +218,18 @@ export default function ConductorScreen() {
     setShowPaymentConfirmation(true)
   }
 
+  const handleCaptureImage = (uri: string) => {
+    setCapturedImage(uri)
+    setShowCameraCapture(false)
+
+    // For cash payment, create a dummy passenger
+    setPassengerData({
+      userId: "cash_passenger_" + Date.now(),
+      name: "Cash Customer",
+    })
+    setShowPaymentConfirmation(true)
+  }
+
   // Send payment request to passenger
   const handleConfirmPayment = async () => {
     if (!passengerData || !fare || !conductorId) return
@@ -224,24 +237,60 @@ export default function ConductorScreen() {
     setIsProcessingPayment(true)
 
     try {
-      // Create payment request in Appwrite
-      const request = await createPaymentRequest(
-        conductorId,
-        conductorName,
-        passengerData.userId,
-        passengerData.name,
-        fare,
-        from || "Unknown",
-        to || "Unknown",
-      )
+      if (paymentMethod === "QR") {
+        // Create payment request in Appwrite
+        const request = await createPaymentRequest(
+          conductorId,
+          conductorName,
+          passengerData.userId,
+          passengerData.name,
+          fare,
+          from || "Unknown",
+          to || "Unknown",
+        )
 
-      // Store the current payment request
-      setCurrentPaymentRequest(request)
+        // Store the current payment request
+        setCurrentPaymentRequest(request)
+      } else {
+        // For cash payment, process directly
+        const transactionId = generateTransactionId()
 
-      // The passenger will receive this request via Appwrite Realtime
-      // and can approve or decline it
+        // Save the transaction to the database
+        const transaction = {
+          passengerName: passengerData.name,
+          fare: fare,
+          from: from || "Unknown",
+          to: to || "Unknown",
+          timestamp: Date.now(),
+          paymentMethod: "Cash",
+          transactionId: transactionId,
+          conductorId: conductorId,
+          passengerPhoto: capturedImage || undefined,
+          passengerType: passengerType,
+          kilometer: kilometer,
+        }
 
-      // We'll wait for the response via the subscription
+        const savedTransactionId = await saveTransaction(transaction)
+
+        // Close confirmation dialog
+        setShowPaymentConfirmation(false)
+        setIsProcessingPayment(false)
+
+        // Navigate to receipt screen
+        router.push({
+          pathname: "/receipt" as any,
+          params: {
+            receiptId: savedTransactionId || "cash_" + transactionId,
+            passengerName: passengerData.name,
+            fare: fare,
+            from: from,
+            to: to,
+            timestamp: new Date().toLocaleString(),
+            passengerType: passengerType,
+            paymentMethod: "Cash",
+          },
+        })
+      }
     } catch (error) {
       console.error("Error creating payment request:", error)
       setIsProcessingPayment(false)
@@ -265,8 +314,27 @@ export default function ConductorScreen() {
       )
 
       if (result.success) {
+        // Generate transaction ID
+        const transactionId = generateTransactionId()
+
+        // Save the transaction to the database
+        const transaction = {
+          passengerName: passengerData.name,
+          fare: request.fare,
+          from: request.from,
+          to: request.to,
+          timestamp: Date.now(),
+          paymentMethod: "QR",
+          transactionId: transactionId,
+          conductorId: conductorId,
+          passengerType: passengerType,
+          kilometer: kilometer,
+        }
+
+        const savedTransactionId = await saveTransaction(transaction)
+
         // Update payment request status to completed with transaction ID
-        await updatePaymentRequestStatus(request.id, "completed", result.transactionId)
+        await updatePaymentRequestStatus(request.id, "completed", savedTransactionId || result.transactionId)
 
         // Close confirmation dialog
         setShowPaymentConfirmation(false)
@@ -275,15 +343,16 @@ export default function ConductorScreen() {
 
         // Navigate to receipt screen
         router.push({
-          pathname: "/receipt",
+          pathname: "/receipt" as any,
           params: {
-            transactionId: result.transactionId,
+            receiptId: savedTransactionId || result.transactionId,
             passengerName: passengerData.name,
             fare: request.fare,
             from: request.from,
             to: request.to,
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
+            paymentMethod: "QR",
           },
         })
       } else {
@@ -305,6 +374,17 @@ export default function ConductorScreen() {
     setPassengerData(null)
     setScanned(false)
     setCurrentPaymentRequest(null)
+    setCapturedImage(null)
+  }
+
+  const handlePaymentMethodChange = (method: "QR" | "Cash") => {
+    setPaymentMethod(method)
+
+    if (method === "QR") {
+      setShowQrScanner(true)
+    } else {
+      setShowCameraCapture(true)
+    }
   }
 
   if (loading) {
@@ -330,6 +410,17 @@ export default function ConductorScreen() {
     )
   }
 
+  if (showCameraCapture) {
+    return (
+      <CameraCapture
+        onCapture={handleCaptureImage}
+        onClose={() => {
+          setShowCameraCapture(false)
+        }}
+      />
+    )
+  }
+
   return (
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
@@ -338,23 +429,73 @@ export default function ConductorScreen() {
 
       <ScrollView className="flex-1 p-4">
         <View className="mt-16">
+          {/* Route Info Banner */}
+          {routeInfo && (
+            <View className="bg-emerald-700 rounded-lg p-3 mb-4 flex-row justify-between items-center">
+              <View className="flex-1">
+                <Text className="text-white font-bold">
+                  {routeInfo.from} → {routeInfo.to}
+                </Text>
+                <Text className="text-white opacity-80">Bus #{routeInfo.busNumber}</Text>
+              </View>
+              <View className="flex-row">
+                <TouchableOpacity
+                  className="mr-2"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/conductor/history" as any,
+                    })
+                  }
+                >
+                  <Ionicons name="document-text-outline" size={24} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push({
+                      pathname: "/conductor/profile" as any,
+                    })
+                  }
+                >
+                  <Ionicons name="person-outline" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           <PassengerTypeSelector value={passengerType} onChange={setPassengerType} />
 
-          <LocationInput
-            label="From"
-            value={from}
-            onChange={setFrom}
-            placeholder="Enter starting point"
-            locations={LOCATIONS}
+          <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
+
+          <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
+
+          <ModifiedFareCalculator
+            from={from}
+            to={to}
+            kilometer={kilometer}
+            fare={fare}
+            onKilometerChange={setKilometer}
           />
-
-          <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" locations={LOCATIONS} />
-
-          <FareCalculator kilometer={kilometer} fare={fare} onKilometerChange={setKilometer} />
         </View>
       </ScrollView>
 
-      <QRButton onPress={() => setShowQrScanner(true)} />
+      {/* Payment Method Buttons */}
+      <View className="flex-row justify-center mb-20">
+        <TouchableOpacity
+          className="bg-emerald-700 p-4 rounded-l-lg flex-row items-center"
+          onPress={() => handlePaymentMethodChange("QR")}
+        >
+          <Ionicons name="qr-code" size={24} color="white" className="mr-2" />
+          <Text className="text-white font-bold">QR Payment</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="bg-emerald-600 p-4 rounded-r-lg flex-row items-center"
+          onPress={() => handlePaymentMethodChange("Cash")}
+        >
+          <Ionicons name="cash" size={24} color="white" className="mr-2" />
+          <Text className="text-white font-bold">Cash Payment</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Payment Confirmation Dialog */}
       {showPaymentConfirmation && passengerData && (
@@ -365,6 +506,8 @@ export default function ConductorScreen() {
           onConfirm={handleConfirmPayment}
           onCancel={handleCancelPayment}
           isProcessing={isProcessingPayment}
+          paymentMethod={paymentMethod}
+          capturedImage={capturedImage}
         />
       )}
     </View>

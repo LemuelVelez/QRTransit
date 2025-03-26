@@ -1,183 +1,261 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { View, Text, TouchableOpacity, Share, ActivityIndicator, ScrollView } from "react-native"
-import { MaterialIcons, Ionicons } from "@expo/vector-icons"
+import { View, Text, TouchableOpacity, StyleSheet, Share, Image } from "react-native"
 import { useLocalSearchParams, useRouter } from "expo-router"
-import * as FileSystem from "expo-file-system"
-import * as Sharing from "expo-sharing"
-
-interface ReceiptParams {
-    transactionId: string
-    passengerName: string
-    fare: string
-    from: string
-    to: string
-    timestamp: string
-    passengerType: string
-}
+import { Ionicons } from "@expo/vector-icons"
+import { StatusBar } from "expo-status-bar"
+import { useRef } from "react"
+import { captureRef } from "react-native-view-shot"
 
 export default function ReceiptScreen() {
-    const router = useRouter()
-    const params = useLocalSearchParams() as unknown as ReceiptParams
-    const [loading, setLoading] = useState(false)
-    const [receiptData, setReceiptData] = useState<ReceiptParams | null>(null)
+  const { receiptId, passengerName, fare, from, to, timestamp, passengerType, paymentMethod } = useLocalSearchParams()
+  const router = useRouter()
+  const receiptRef = useRef(null)
 
-    useEffect(() => {
-        if (params) {
-            setReceiptData({
-                transactionId: params.transactionId || "TXN-" + Date.now(),
-                passengerName: params.passengerName || "Unknown Passenger",
-                fare: params.fare || "₱0.00",
-                from: params.from || "Unknown",
-                to: params.to || "Unknown",
-                timestamp: params.timestamp || new Date().toLocaleString(),
-                passengerType: params.passengerType || "Regular",
-            })
-        }
-    }, [params])
+  const handleShare = async () => {
+    try {
+      if (receiptRef.current) {
+        const uri = await captureRef(receiptRef.current, {
+          format: "png",
+          quality: 0.8,
+        })
 
-    const handleShare = async () => {
-        try {
-            const result = await Share.share({
-                message: `Receipt for fare payment\n
-Transaction ID: ${receiptData?.transactionId}\n
-Passenger: ${receiptData?.passengerName}\n
-Amount: ${receiptData?.fare}\n
-From: ${receiptData?.from}\n
-To: ${receiptData?.to}\n
-Date: ${receiptData?.timestamp}\n
-Passenger Type: ${receiptData?.passengerType}`,
-                title: "Fare Payment Receipt",
-            })
-        } catch (error) {
-            console.error("Error sharing receipt:", error)
-        }
+        await Share.share({
+          url: uri,
+          title: "Receipt",
+          message: `Receipt for fare payment of ${fare} from ${from} to ${to}`,
+        })
+      }
+    } catch (error) {
+      console.error("Error sharing receipt:", error)
     }
+  }
 
-    const handleDownload = async () => {
-        if (!receiptData) return
+  return (
+    <View style={styles.container}>
+      <StatusBar style="light" />
 
-        setLoading(true)
-        try {
-            // Create receipt content
-            const receiptContent = `
-=================================
-        FARE PAYMENT RECEIPT
-=================================
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.push("/conductor" as any)} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Receipt</Text>
+        <TouchableOpacity onPress={handleShare} style={styles.shareButton}>
+          <Ionicons name="share-outline" size={24} color="white" />
+        </TouchableOpacity>
+      </View>
 
-Transaction ID: ${receiptData.transactionId}
-Date: ${receiptData.timestamp}
-
-Passenger: ${receiptData.passengerName}
-Type: ${receiptData.passengerType}
-
-From: ${receiptData.from}
-To: ${receiptData.to}
-
-Amount: ${receiptData.fare}
-
-=================================
-      Thank you for riding!
-=================================
-      `
-
-            // Create a temporary file
-            const fileUri = `${FileSystem.cacheDirectory}receipt-${Date.now()}.txt`
-            await FileSystem.writeAsStringAsync(fileUri, receiptContent)
-
-            // Share the file
-            if (await Sharing.isAvailableAsync()) {
-                await Sharing.shareAsync(fileUri)
-            }
-        } catch (error) {
-            console.error("Error downloading receipt:", error)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    if (!receiptData) {
-        return (
-            <View className="flex-1 justify-center items-center bg-emerald-400">
-                <ActivityIndicator size="large" color="white" />
-            </View>
-        )
-    }
-
-    return (
-        <View className="flex-1 bg-emerald-400">
-            <View className="mb-4 mt-12 px-4">
-                <TouchableOpacity onPress={() => router.back()} className="p-1">
-                    <MaterialIcons name="arrow-back" size={24} color="#ffffff" />
-                </TouchableOpacity>
-            </View>
-
-            <ScrollView className="flex-1 px-4">
-                <View className="bg-white rounded-xl shadow-md p-6 mb-6">
-                    <View className="items-center mb-6">
-                        <Ionicons name="checkmark-circle" size={64} color="#059669" />
-                        <Text className="text-2xl font-bold text-gray-800 mt-2">Payment Successful</Text>
-                        <Text className="text-gray-600">Receipt generated successfully</Text>
-                    </View>
-
-                    <View className="bg-gray-50 p-4 rounded-lg mb-6">
-                        <View className="flex-row justify-between py-2 border-b border-gray-200">
-                            <Text className="text-gray-600">Transaction ID:</Text>
-                            <Text className="font-medium text-gray-800">{receiptData.transactionId}</Text>
-                        </View>
-                        <View className="flex-row justify-between py-2 border-b border-gray-200">
-                            <Text className="text-gray-600">Date:</Text>
-                            <Text className="font-medium text-gray-800">{receiptData.timestamp}</Text>
-                        </View>
-                        <View className="flex-row justify-between py-2 border-b border-gray-200">
-                            <Text className="text-gray-600">Passenger:</Text>
-                            <Text className="font-medium text-gray-800">{receiptData.passengerName}</Text>
-                        </View>
-                        <View className="flex-row justify-between py-2 border-b border-gray-200">
-                            <Text className="text-gray-600">Type:</Text>
-                            <Text className="font-medium text-gray-800">{receiptData.passengerType}</Text>
-                        </View>
-                        <View className="flex-row justify-between py-2 border-b border-gray-200">
-                            <Text className="text-gray-600">From:</Text>
-                            <Text className="font-medium text-gray-800">{receiptData.from}</Text>
-                        </View>
-                        <View className="flex-row justify-between py-2 border-b border-gray-200">
-                            <Text className="text-gray-600">To:</Text>
-                            <Text className="font-medium text-gray-800">{receiptData.to}</Text>
-                        </View>
-                        <View className="flex-row justify-between py-2">
-                            <Text className="text-gray-600">Amount:</Text>
-                            <Text className="font-bold text-emerald-600">{receiptData.fare}</Text>
-                        </View>
-                    </View>
-
-                    <View className="flex-row justify-between">
-                        <TouchableOpacity
-                            onPress={handleShare}
-                            className="flex-1 mr-2 py-3 bg-gray-200 rounded-lg items-center flex-row justify-center"
-                        >
-                            <Ionicons name="share-social-outline" size={20} color="#059669" />
-                            <Text className="font-medium text-gray-800 ml-2">Share</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={handleDownload}
-                            className="flex-1 ml-2 py-3 bg-emerald-500 rounded-lg items-center flex-row justify-center"
-                            disabled={loading}
-                        >
-                            {loading ? (
-                                <ActivityIndicator size="small" color="white" />
-                            ) : (
-                                <>
-                                    <Ionicons name="download-outline" size={20} color="white" />
-                                    <Text className="font-medium text-white ml-2">Download</Text>
-                                </>
-                            )}
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </ScrollView>
+      {/* Receipt Card */}
+      <View style={styles.receiptContainer} ref={receiptRef}>
+        <View style={styles.receiptHeader}>
+          <Image source={require("@/assets/images/QuickRide.png")} style={styles.logo} resizeMode="contain" />
+          <Text style={styles.appName}>QuickRide</Text>
+          <Text style={styles.receiptTitle}>Payment Receipt</Text>
         </View>
-    )
+
+        <View style={styles.receiptBody}>
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>Receipt ID:</Text>
+            <Text style={styles.receiptValue}>{receiptId}</Text>
+          </View>
+
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>Date:</Text>
+            <Text style={styles.receiptValue}>{timestamp}</Text>
+          </View>
+
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>Passenger:</Text>
+            <Text style={styles.receiptValue}>{passengerName}</Text>
+          </View>
+
+          {passengerType && (
+            <View style={styles.receiptRow}>
+              <Text style={styles.receiptLabel}>Passenger Type:</Text>
+              <Text style={styles.receiptValue}>{passengerType}</Text>
+            </View>
+          )}
+
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>From:</Text>
+            <Text style={styles.receiptValue}>{from}</Text>
+          </View>
+
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>To:</Text>
+            <Text style={styles.receiptValue}>{to}</Text>
+          </View>
+
+          <View style={styles.receiptRow}>
+            <Text style={styles.receiptLabel}>Payment Method:</Text>
+            <View style={styles.paymentMethodContainer}>
+              <Ionicons
+                name={paymentMethod === "QR" ? "qr-code" : "cash"}
+                size={16}
+                color="#059669"
+                style={styles.paymentIcon}
+              />
+              <Text style={styles.receiptValue}>{paymentMethod}</Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>Total Amount:</Text>
+            <Text style={styles.totalValue}>{fare}</Text>
+          </View>
+        </View>
+
+        <View style={styles.receiptFooter}>
+          <Text style={styles.footerText}>Thank you for using QuickRide!</Text>
+          <Text style={styles.footerSubtext}>Safe travels!</Text>
+        </View>
+      </View>
+
+      {/* Action Buttons */}
+      <View style={styles.actionButtons}>
+        <TouchableOpacity style={styles.newTransactionButton} onPress={() => router.push("/conductor" as any)}>
+          <Ionicons name="add-circle-outline" size={20} color="white" style={styles.buttonIcon} />
+          <Text style={styles.buttonText}>New Transaction</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  )
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#059669",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  backButton: {
+    padding: 8,
+  },
+  headerTitle: {
+    color: "white",
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  shareButton: {
+    padding: 8,
+  },
+  receiptContainer: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    marginHorizontal: 20,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  receiptHeader: {
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  logo: {
+    width: 60,
+    height: 60,
+    marginBottom: 8,
+  },
+  appName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#059669",
+    marginBottom: 4,
+  },
+  receiptTitle: {
+    fontSize: 16,
+    color: "#666",
+  },
+  receiptBody: {
+    marginBottom: 20,
+  },
+  receiptRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  receiptLabel: {
+    fontSize: 14,
+    color: "#666",
+  },
+  receiptValue: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#333",
+    maxWidth: "60%",
+    textAlign: "right",
+  },
+  paymentMethodContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  paymentIcon: {
+    marginRight: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#e0e0e0",
+    marginVertical: 12,
+  },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#059669",
+  },
+  receiptFooter: {
+    alignItems: "center",
+  },
+  footerText: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 4,
+  },
+  footerSubtext: {
+    fontSize: 12,
+    color: "#999",
+  },
+  actionButtons: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  newTransactionButton: {
+    backgroundColor: "#047857",
+    borderRadius: 12,
+    paddingVertical: 16,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  buttonIcon: {
+    marginRight: 8,
+  },
+  buttonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+})
 
