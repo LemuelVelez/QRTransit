@@ -446,6 +446,16 @@ export default function ConductorScreen() {
                   <Ionicons name="document-text-outline" size={24} color="white" />
                 </TouchableOpacity>
                 <TouchableOpacity
+                  className="mr-2"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/conductor/manage-routes" as any,
+                    })
+                  }
+                >
+                  <Ionicons name="map-outline" size={24} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity
                   onPress={() =>
                     router.push({
                       pathname: "/conductor/profile" as any,

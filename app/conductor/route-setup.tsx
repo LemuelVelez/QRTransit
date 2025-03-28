@@ -1,94 +1,83 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, StatusBar, Alert } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, StatusBar } from "react-native"
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
-import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
+import { getCurrentUser } from "@/lib/appwrite"
 import { saveRouteInfo } from "@/lib/route-service"
-import LocationInput from "@/components/location-input"
 
 export default function RouteSetupScreen() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [busNumber, setBusNumber] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [conductorId, setConductorId] = useState("")
-  const [conductorName, setConductorName] = useState("Conductor")
+
   const router = useRouter()
 
   useEffect(() => {
-    async function checkAccess() {
+    async function loadUser() {
       try {
-        // Check if user has conductor role specifically
-        const hasPermission = await checkRoutePermission("conductor")
+        const user = await getCurrentUser()
 
-        if (!hasPermission) {
-          Alert.alert("Access Denied", "You don't have permission to access this screen.")
-          // Redirect to home
+        if (!user) {
+          Alert.alert("Error", "Failed to get user information")
           router.replace("/")
           return
         }
 
-        // Load conductor info
-        try {
-          const user = await getCurrentUser()
-          if (user) {
-            setConductorId(user.$id || "")
-            setConductorName(
-              user.firstname && user.lastname
-                ? `${user.firstname} ${user.lastname}`
-                : user.username || user.email || "Conductor",
-            )
-          }
-        } catch (userError) {
-          console.error("Error loading conductor data:", userError)
-        }
-
-        setLoading(false)
+        setConductorId(user.$id || "")
+        setInitialLoading(false)
       } catch (error) {
-        console.error("Error checking access:", error)
-        Alert.alert("Error", "Failed to verify access permissions.")
+        console.error("Error loading user:", error)
+        Alert.alert("Error", "Failed to load user information")
         router.replace("/")
       }
     }
 
-    checkAccess()
+    loadUser()
   }, [])
 
-  const handleSubmit = async () => {
+  const handleSaveRoute = async () => {
     if (!from || !to || !busNumber) {
-      Alert.alert("Missing Information", "Please fill in all fields before continuing.")
+      Alert.alert("Missing Information", "Please fill in all fields")
       return
     }
 
-    setSubmitting(true)
+    setLoading(true)
+
     try {
-      // Save route information
-      await saveRouteInfo(conductorId, {
+      const routeInfo = {
         from,
         to,
         busNumber,
         timestamp: Date.now(),
-      })
+      }
 
-      // Navigate to conductor main screen
-      router.push("/conductor")
+      await saveRouteInfo(conductorId, routeInfo)
+
+      Alert.alert("Route Saved", "Your route has been set up successfully", [
+        {
+          text: "OK",
+          onPress: () => router.replace("/conductor" as any),
+        },
+      ])
     } catch (error) {
-      console.error("Error saving route info:", error)
-      Alert.alert("Error", "Failed to save route information. Please try again.")
+      console.error("Error saving route:", error)
+      Alert.alert("Error", "Failed to save route information")
     } finally {
-      setSubmitting(false)
+      setLoading(false)
     }
   }
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <View className="flex-1 justify-center items-center bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
-        <Text className="mt-4 text-white">Verifying access...</Text>
+        <Text className="mt-4 text-white">Loading...</Text>
       </View>
     )
   }
@@ -97,41 +86,73 @@ export default function RouteSetupScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      <ScrollView className="flex-1 p-4">
-        <View className="mt-16">
-          <Text className="text-white text-2xl font-bold mb-6 text-center">Route Setup</Text>
+      <View className="flex-row items-center justify-between px-4 pt-16 pb-4">
+        <TouchableOpacity onPress={() => router.back()} className="p-2">
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        <Text className="text-white text-xl font-bold">Set Up Route</Text>
+        <View style={{ width: 32 }} />
+      </View>
 
-          <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
+      <View className="flex-1 p-4">
+        <View className="bg-white rounded-lg p-6 shadow-sm">
+          <Text className="text-xl font-bold text-gray-800 mb-6">Route Information</Text>
 
-          <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
-
-          <View className="mb-8">
-            <Text className="text-black text-xl font-bold mb-2">Bus Number</Text>
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-medium">From</Text>
             <View className="flex-row items-center">
-              <Ionicons name="bus" size={24} color="black" className="mr-2" />
+              <Ionicons name="location" size={24} color="#059669" className="mr-2" />
               <TextInput
-                className="flex-1 p-4 bg-white rounded-md"
+                className="flex-1 border border-gray-300 rounded-md p-3 bg-gray-50"
+                value={from}
+                onChangeText={setFrom}
+                placeholder="Starting point"
+                editable={!loading}
+              />
+            </View>
+          </View>
+
+          <View className="mb-4">
+            <Text className="text-gray-700 mb-1 font-medium">To</Text>
+            <View className="flex-row items-center">
+              <Ionicons name="location-outline" size={24} color="#059669" className="mr-2" />
+              <TextInput
+                className="flex-1 border border-gray-300 rounded-md p-3 bg-gray-50"
+                value={to}
+                onChangeText={setTo}
+                placeholder="Destination"
+                editable={!loading}
+              />
+            </View>
+          </View>
+
+          <View className="mb-6">
+            <Text className="text-gray-700 mb-1 font-medium">Bus Number</Text>
+            <View className="flex-row items-center">
+              <Ionicons name="bus-outline" size={24} color="#059669" className="mr-2" />
+              <TextInput
+                className="flex-1 border border-gray-300 rounded-md p-3 bg-gray-50"
                 value={busNumber}
                 onChangeText={setBusNumber}
-                placeholder="Enter bus number"
-                keyboardType="numeric"
+                placeholder="Bus number"
+                editable={!loading}
               />
             </View>
           </View>
 
           <TouchableOpacity
-            className={`w-full ${submitting ? "bg-emerald-600" : "bg-emerald-700"} py-4 rounded-lg items-center mb-4`}
-            onPress={handleSubmit}
-            disabled={submitting}
+            className="bg-emerald-500 py-4 rounded-lg items-center"
+            onPress={handleSaveRoute}
+            disabled={loading || !from || !to || !busNumber}
           >
-            {submitting ? (
-              <ActivityIndicator color="white" />
+            {loading ? (
+              <ActivityIndicator size="small" color="white" />
             ) : (
-              <Text className="text-white text-lg font-bold">Start Trip</Text>
+              <Text className="text-white font-bold text-lg">Save Route</Text>
             )}
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
     </View>
   )
 }

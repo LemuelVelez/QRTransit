@@ -1,11 +1,14 @@
-import { ID } from "react-native-appwrite";
+import { ID, Query } from "react-native-appwrite";
 import { databases, config } from "./appwrite";
 
-interface RouteInfo {
+export interface RouteInfo {
+  id?: string;
   from: string;
   to: string;
   busNumber: string;
   timestamp: number;
+  active?: boolean;
+  endTimestamp?: number;
 }
 
 // Get the collection ID for routes
@@ -60,10 +63,10 @@ export async function getActiveRoute(
     }
 
     const response = await databases.listDocuments(databaseId, collectionId, [
-      // Query.equal("conductorId", conductorId),
-      // Query.equal("active", true),
-      // Query.orderDesc("timestamp"),
-      // Query.limit(1)
+      Query.equal("conductorId", conductorId),
+      Query.equal("active", true),
+      Query.orderDesc("timestamp"),
+      Query.limit(1),
     ]);
 
     if (response.documents.length === 0) {
@@ -72,10 +75,12 @@ export async function getActiveRoute(
 
     const route = response.documents[0];
     return {
+      id: route.$id,
       from: route.from,
       to: route.to,
       busNumber: route.busNumber,
       timestamp: Number.parseInt(route.timestamp),
+      active: route.active,
     };
   } catch (error) {
     console.error("Error getting active route:", error);
@@ -101,6 +106,93 @@ export async function endRoute(routeId: string): Promise<boolean> {
     return true;
   } catch (error) {
     console.error("Error ending route:", error);
+    return false;
+  }
+}
+
+// Get all routes for a conductor
+export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
+  try {
+    const databaseId = config.databaseId;
+    const collectionId = getRoutesCollectionId();
+
+    if (!databaseId || !collectionId) {
+      throw new Error("Appwrite configuration missing");
+      return [];
+    }
+
+    const response = await databases.listDocuments(databaseId, collectionId, [
+      Query.equal("conductorId", conductorId),
+      Query.orderDesc("timestamp"),
+    ]);
+
+    return response.documents.map((route) => ({
+      id: route.$id,
+      from: route.from,
+      to: route.to,
+      busNumber: route.busNumber,
+      timestamp: Number.parseInt(route.timestamp),
+      active: route.active,
+      endTimestamp: route.endTimestamp
+        ? Number.parseInt(route.endTimestamp)
+        : undefined,
+    }));
+  } catch (error) {
+    console.error("Error getting all routes:", error);
+    return [];
+  }
+}
+
+// Update route information
+export async function updateRoute(
+  routeId: string,
+  updates: Partial<RouteInfo>
+): Promise<boolean> {
+  try {
+    const databaseId = config.databaseId;
+    const collectionId = getRoutesCollectionId();
+
+    if (!databaseId || !collectionId) {
+      throw new Error("Appwrite configuration missing");
+    }
+
+    // Prepare update data
+    const updateData: Record<string, any> = {};
+    if (updates.from !== undefined) updateData.from = updates.from;
+    if (updates.to !== undefined) updateData.to = updates.to;
+    if (updates.busNumber !== undefined)
+      updateData.busNumber = updates.busNumber;
+    if (updates.active !== undefined) updateData.active = updates.active;
+
+    await databases.updateDocument(
+      databaseId,
+      collectionId,
+      routeId,
+      updateData
+    );
+
+    return true;
+  } catch (error) {
+    console.error("Error updating route:", error);
+    return false;
+  }
+}
+
+// Delete a route
+export async function deleteRoute(routeId: string): Promise<boolean> {
+  try {
+    const databaseId = config.databaseId;
+    const collectionId = getRoutesCollectionId();
+
+    if (!databaseId || !collectionId) {
+      throw new Error("Appwrite configuration missing");
+    }
+
+    await databases.deleteDocument(databaseId, collectionId, routeId);
+
+    return true;
+  } catch (error) {
+    console.error("Error deleting route:", error);
     return false;
   }
 }
