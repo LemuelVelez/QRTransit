@@ -5,7 +5,6 @@ import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, StatusBar, A
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
-import ProfileDropdown from "@/components/profile-dropdown"
 import DateRangePicker from "@/components/date-range-picker"
 import { getTransactionHistory, getTransactionsByDateRange } from "@/lib/transaction-history-service"
 
@@ -145,7 +144,6 @@ export default function TransactionHistoryScreen() {
   return (
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
-      <ProfileDropdown onLogoutStart={() => setLoading(true)} onLogoutEnd={() => setLoading(false)} />
 
       <View className="mt-16 px-4">
         <Text className="text-white text-2xl font-bold mb-4 text-center">Transaction History</Text>

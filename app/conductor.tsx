@@ -8,8 +8,6 @@ import { checkRoutePermission } from "@/lib/appwrite"
 import { getCurrentUser } from "@/lib/appwrite"
 import { getActiveRoute } from "@/lib/route-service"
 import { generateTransactionId, saveTransaction } from "@/lib/transaction-history-service"
-
-import ProfileDropdown from "@/components/profile-dropdown"
 import PassengerTypeSelector from "@/components/passenger-type-selector"
 import LocationInput from "@/components/location-input"
 import ModifiedFareCalculator from "@/components/fare-calculator"
@@ -425,8 +423,6 @@ export default function ConductorScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      <ProfileDropdown onLogoutStart={() => setLoading(true)} onLogoutEnd={() => setLoading(false)} />
-
       <ScrollView className="flex-1 p-4">
         <View className="mt-16">
           {/* Route Info Banner */}
@@ -479,7 +475,7 @@ export default function ConductorScreen() {
       </ScrollView>
 
       {/* Payment Method Buttons */}
-      <View className="flex-row justify-center mb-20">
+      <View className="flex-row justify-center mb-12">
         <TouchableOpacity
           className="bg-emerald-700 p-4 rounded-l-lg flex-row items-center"
           onPress={() => handlePaymentMethodChange("QR")}

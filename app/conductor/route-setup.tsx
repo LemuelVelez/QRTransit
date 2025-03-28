@@ -5,7 +5,6 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, ActivityIndicator,
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
-import ProfileDropdown from "@/components/profile-dropdown"
 import { saveRouteInfo } from "@/lib/route-service"
 import LocationInput from "@/components/location-input"
 
@@ -97,7 +96,6 @@ export default function RouteSetupScreen() {
   return (
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
-      <ProfileDropdown onLogoutStart={() => setLoading(true)} onLogoutEnd={() => setLoading(false)} />
 
       <ScrollView className="flex-1 p-4">
         <View className="mt-16">
