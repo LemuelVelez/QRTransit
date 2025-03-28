@@ -7,7 +7,6 @@ import { useRouter } from "expo-router"
 import { checkRoutePermission } from "@/lib/appwrite"
 import { getCurrentUser } from "@/lib/appwrite"
 import { getActiveRoute } from "@/lib/route-service"
-import { generateTransactionId, saveTransaction } from "@/lib/transaction-history-service"
 import PassengerTypeSelector from "@/components/passenger-type-selector"
 import LocationInput from "@/components/location-input"
 import ModifiedFareCalculator from "@/components/fare-calculator"
@@ -22,6 +21,7 @@ import {
 } from "@/lib/appwrite-payment-service"
 import { Ionicons } from "@expo/vector-icons"
 import CameraCapture from "@/components/camera-capture"
+import { saveTrip, generateTripId } from "@/lib/trips-service"
 
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
@@ -251,24 +251,24 @@ export default function ConductorScreen() {
         setCurrentPaymentRequest(request)
       } else {
         // For cash payment, process directly
-        const transactionId = generateTransactionId()
+        const tripId = generateTripId()
 
-        // Save the transaction to the database
-        const transaction = {
+        // Save the trip to the database
+        const trip = {
           passengerName: passengerData.name,
           fare: fare,
           from: from || "Unknown",
           to: to || "Unknown",
           timestamp: Date.now(),
           paymentMethod: "Cash",
-          transactionId: transactionId,
+          transactionId: tripId,
           conductorId: conductorId,
           passengerPhoto: capturedImage || undefined,
           passengerType: passengerType,
           kilometer: kilometer,
         }
 
-        const savedTransactionId = await saveTransaction(transaction)
+        const savedTripId = await saveTrip(trip)
 
         // Close confirmation dialog
         setShowPaymentConfirmation(false)
@@ -278,7 +278,7 @@ export default function ConductorScreen() {
         router.push({
           pathname: "/receipt" as any,
           params: {
-            receiptId: savedTransactionId || "cash_" + transactionId,
+            receiptId: savedTripId || "cash_" + tripId,
             passengerName: passengerData.name,
             fare: fare,
             from: from,
@@ -312,27 +312,27 @@ export default function ConductorScreen() {
       )
 
       if (result.success) {
-        // Generate transaction ID
-        const transactionId = generateTransactionId()
+        // Generate trip ID
+        const tripId = generateTripId()
 
-        // Save the transaction to the database
-        const transaction = {
+        // Save the trip to the database
+        const trip = {
           passengerName: passengerData.name,
           fare: request.fare,
           from: request.from,
           to: request.to,
           timestamp: Date.now(),
           paymentMethod: "QR",
-          transactionId: transactionId,
+          transactionId: tripId,
           conductorId: conductorId,
           passengerType: passengerType,
           kilometer: kilometer,
         }
 
-        const savedTransactionId = await saveTransaction(transaction)
+        const savedTripId = await saveTrip(trip)
 
         // Update payment request status to completed with transaction ID
-        await updatePaymentRequestStatus(request.id, "completed", savedTransactionId || result.transactionId)
+        await updatePaymentRequestStatus(request.id, "completed", savedTripId || result.transactionId)
 
         // Close confirmation dialog
         setShowPaymentConfirmation(false)
@@ -343,7 +343,7 @@ export default function ConductorScreen() {
         router.push({
           pathname: "/receipt" as any,
           params: {
-            receiptId: savedTransactionId || result.transactionId,
+            receiptId: savedTripId || result.transactionId,
             passengerName: passengerData.name,
             fare: request.fare,
             from: request.from,

@@ -6,25 +6,12 @@ import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
 import DateRangePicker from "@/components/date-range-picker"
-import { getTransactionHistory, getTransactionsByDateRange } from "@/lib/transaction-history-service"
+import { getTripHistory, getTripsByDateRange, type Trip } from "@/lib/trips-service"
 
-interface Transaction {
-  id: string
-  passengerName: string
-  fare: string
-  from: string
-  to: string
-  timestamp: number
-  paymentMethod: string
-  transactionId: string
-  conductorId: string
-  passengerPhoto?: string
-}
-
-export default function TransactionHistoryScreen() {
+export default function TripHistoryScreen() {
   const [loading, setLoading] = useState(true)
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([])
+  const [trips, setTrips] = useState<Trip[]>([])
+  const [filteredTrips, setFilteredTrips] = useState<Trip[]>([])
   const [startDate, setStartDate] = useState<Date | null>(null)
   const [endDate, setEndDate] = useState<Date | null>(null)
   const [showDatePicker, setShowDatePicker] = useState(false)
@@ -50,8 +37,8 @@ export default function TransactionHistoryScreen() {
           if (user) {
             setConductorId(user.$id || "")
 
-            // Load transaction history
-            await loadTransactions(user.$id || "")
+            // Load trip history
+            await loadTrips(user.$id || "")
           }
         } catch (userError) {
           console.error("Error loading conductor data:", userError)
@@ -68,36 +55,36 @@ export default function TransactionHistoryScreen() {
 
   useEffect(() => {
     if (startDate && endDate && conductorId) {
-      filterTransactionsByDate()
+      filterTripsByDate()
     } else {
-      setFilteredTransactions(transactions)
+      setFilteredTrips(trips)
     }
-  }, [startDate, endDate, transactions])
+  }, [startDate, endDate, trips])
 
-  const loadTransactions = async (id: string) => {
+  const loadTrips = async (id: string) => {
     try {
       setLoading(true)
-      const history = await getTransactionHistory(id)
-      setTransactions(history)
-      setFilteredTransactions(history)
+      const history = await getTripHistory(id)
+      setTrips(history)
+      setFilteredTrips(history)
     } catch (error) {
-      console.error("Error loading transaction history:", error)
-      Alert.alert("Error", "Failed to load transaction history.")
+      console.error("Error loading trip history:", error)
+      Alert.alert("Error", "Failed to load trip history.")
     } finally {
       setLoading(false)
     }
   }
 
-  const filterTransactionsByDate = async () => {
+  const filterTripsByDate = async () => {
     if (!startDate || !endDate || !conductorId) return
 
     try {
       setLoading(true)
-      const filtered = await getTransactionsByDateRange(conductorId, startDate, endDate)
-      setFilteredTransactions(filtered)
+      const filtered = await getTripsByDateRange(conductorId, startDate, endDate)
+      setFilteredTrips(filtered)
     } catch (error) {
-      console.error("Error filtering transactions:", error)
-      Alert.alert("Error", "Failed to filter transactions.")
+      console.error("Error filtering trips:", error)
+      Alert.alert("Error", "Failed to filter trips.")
     } finally {
       setLoading(false)
     }
@@ -106,22 +93,24 @@ export default function TransactionHistoryScreen() {
   const clearFilters = () => {
     setStartDate(null)
     setEndDate(null)
-    setFilteredTransactions(transactions)
+    setFilteredTrips(trips)
   }
 
-  const handleViewDetails = (transaction: Transaction) => {
+  const handleViewDetails = (trip: Trip) => {
     router.push({
-      pathname: "/conductor/transaction-details" as any,
+      pathname: "/conductor/trip-details" as any,
       params: {
-        id: transaction.id,
-        passengerName: transaction.passengerName,
-        fare: transaction.fare,
-        from: transaction.from,
-        to: transaction.to,
-        timestamp: transaction.timestamp.toString(),
-        paymentMethod: transaction.paymentMethod,
-        transactionId: transaction.transactionId,
-        passengerPhoto: transaction.passengerPhoto,
+        id: trip.id,
+        passengerName: trip.passengerName,
+        fare: trip.fare,
+        from: trip.from,
+        to: trip.to,
+        timestamp: trip.timestamp.toString(),
+        paymentMethod: trip.paymentMethod,
+        transactionId: trip.transactionId,
+        passengerPhoto: trip.passengerPhoto,
+        passengerType: trip.passengerType || "Regular",
+        kilometer: trip.kilometer || "0",
       },
     })
   }
@@ -136,7 +125,7 @@ export default function TransactionHistoryScreen() {
       <View className="flex-1 justify-center items-center bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
-        <Text className="mt-4 text-white">Loading transactions...</Text>
+        <Text className="mt-4 text-white">Loading trips...</Text>
       </View>
     )
   }
@@ -145,9 +134,16 @@ export default function TransactionHistoryScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      <View className="mt-16 px-4">
-        <Text className="text-white text-2xl font-bold mb-4 text-center">Transaction History</Text>
+      {/* Header with back button */}
+      <View className="flex-row items-center justify-between px-4 pt-16 pb-2">
+        <TouchableOpacity onPress={() => router.back()} className="p-2">
+          <Ionicons name="arrow-back" size={24} color="white" />
+        </TouchableOpacity>
+        <Text className="text-white text-xl font-bold">Trip History</Text>
+        <View style={{ width: 32 }} />
+      </View>
 
+      <View className="px-4 flex-1">
         {/* Date Filter */}
         <View className="bg-white rounded-lg p-4 mb-4">
           <TouchableOpacity
@@ -170,15 +166,15 @@ export default function TransactionHistoryScreen() {
           )}
         </View>
 
-        {/* Transaction List */}
-        {filteredTransactions.length === 0 ? (
+        {/* Trip List */}
+        {filteredTrips.length === 0 ? (
           <View className="bg-white rounded-lg p-8 items-center justify-center">
             <Ionicons name="document-text-outline" size={48} color="#059669" />
-            <Text className="text-gray-700 mt-4 text-center">No transactions found for the selected period.</Text>
+            <Text className="text-gray-700 mt-4 text-center">No trips found for the selected period.</Text>
           </View>
         ) : (
           <FlatList
-            data={filteredTransactions}
+            data={filteredTrips}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity className="bg-white rounded-lg p-4 mb-3" onPress={() => handleViewDetails(item)}>
