@@ -96,7 +96,8 @@ export default function InspectionHistoryScreen() {
     if (!startDate || !endDate) return
 
     const filtered = inspections.filter((inspection) => {
-      const inspectionDate = new Date(inspection.timestamp)
+      // Convert string timestamp to number before creating Date object
+      const inspectionDate = new Date(Number.parseInt(inspection.timestamp))
       return inspectionDate >= startDate && inspectionDate <= endDate
     })
 
@@ -115,8 +116,9 @@ export default function InspectionHistoryScreen() {
     setRefreshing(false)
   }
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp)
+  const formatDate = (timestamp: string) => {
+    // Convert string timestamp to number before creating Date object
+    const date = new Date(Number.parseInt(timestamp))
     return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
 
@@ -203,12 +205,19 @@ export default function InspectionHistoryScreen() {
                     <Text className="text-gray-600">Conductor:</Text>
                     <Text className="text-gray-800">{item.conductorName}</Text>
                   </View>
-                  <View className="flex-row justify-between mb-2">
-                    <Text className="text-gray-600">Inspection Route:</Text>
-                    <Text className="text-gray-800">
-                      {item.inspectionFrom} → {item.inspectionTo}
-                    </Text>
+
+                  {/* Modified Inspection Route section - Changed to vertical layout */}
+                  <View className="mb-2">
+                    <Text className="text-gray-600 mb-1">Inspection Route:</Text>
+                    <View className="bg-gray-50 p-2 rounded-lg">
+                      <Text className="text-gray-800 mb-1">{item.inspectionFrom}</Text>
+                      <View className="flex-row items-center justify-center my-1">
+                        <Ionicons name="arrow-down" size={16} color="#3b82f6" />
+                      </View>
+                      <Text className="text-gray-800">{item.inspectionTo}</Text>
+                    </View>
                   </View>
+
                   <View className="flex-row justify-between mb-2">
                     <Text className="text-gray-600">Passenger Count:</Text>
                     <Text className="text-gray-800">{item.passengerCount}</Text>

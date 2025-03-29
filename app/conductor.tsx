@@ -196,7 +196,7 @@ export default function ConductorScreen() {
   }, [conductorId, currentPaymentRequest])
 
   useEffect(() => {
-    ;(async () => {
+    ; (async () => {
       if (!cameraPermission?.granted) {
         await requestCameraPermission()
       }
@@ -255,11 +255,11 @@ export default function ConductorScreen() {
     setCapturedImage(uri)
     setShowCameraCapture(false)
 
-    // Generate a unique ID for the cash customer
+    // Generate a unique ID for the cash passenger
     const uniqueId = Date.now().toString().slice(-4)
 
     // Create a unique passenger name with ID
-    const uniquePassengerName = `Customer #${uniqueId}`
+    const uniquePassengerName = `Passenger #${uniqueId}`
 
     // For cash payment, create a passenger with unique name
     setPassengerData({

@@ -15,6 +15,28 @@ const getInspectionsCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_INSPECTIONS_COLLECTION_ID || "inspections"
 }
 
+// Helper function to get a safe conductor name
+const getSafeConductorName = (doc: any): string => {
+  // Check if conductorName exists and is not empty
+  if (doc.conductorName && doc.conductorName.trim() !== "") {
+    return doc.conductorName
+  }
+
+  // Check if conductorId exists
+  if (doc.conductorId) {
+    // Return a partial ID if available
+    try {
+      return `Conductor (ID: ${doc.conductorId.substring(0, 8)}...)`
+    } catch (e) {
+      // If substring fails, return the full ID
+      return `Conductor (ID: ${doc.conductorId})`
+    }
+  }
+
+  // Fallback if neither name nor ID is available
+  return "Unknown Conductor"
+}
+
 // Search for a bus by number
 export async function searchBusByNumber(busNumber: string): Promise<BusInfo[]> {
   try {
@@ -33,12 +55,12 @@ export async function searchBusByNumber(busNumber: string): Promise<BusInfo[]> {
     return response.documents.map((doc) => ({
       id: doc.$id,
       busNumber: doc.busNumber,
-      conductorId: doc.conductorId,
-      conductorName: doc.conductorName || "Unknown Conductor",
+      conductorId: doc.conductorId || "",
+      conductorName: getSafeConductorName(doc),
       from: doc.from,
       to: doc.to,
       active: doc.active === true,
-      timestamp: Number.parseInt(doc.timestamp),
+      timestamp: doc.timestamp, // Keep as string from Appwrite
     }))
   } catch (error) {
     console.error("Error searching for bus:", error)
@@ -75,7 +97,7 @@ export async function getBusPassengers(busId: string, conductorId: string): Prom
       fare: doc.fare || "₱0.00",
       from: doc.from || "Unknown",
       to: doc.to || "Unknown",
-      timestamp: Number.parseInt(doc.timestamp) || Date.now(),
+      timestamp: doc.timestamp || Date.now().toString(), // Keep as string from Appwrite
       paymentMethod: doc.paymentMethod || "QR",
     }))
   } catch (error) {
@@ -106,17 +128,17 @@ export async function markBusAsCleared(
     // Get passenger count
     const passengers = await getBusPassengers(busId, busDetails.conductorId)
 
-    // Create inspection record - Convert timestamp to string
+    // Create inspection record - All values as strings for Appwrite
     const inspectionRecord = {
       inspectorId,
       busId,
       busNumber: busDetails.busNumber,
-      conductorId: busDetails.conductorId,
-      conductorName: busDetails.conductorName || "Unknown Conductor",
-      timestamp: Date.now().toString(), // Convert to string for Appwrite
+      conductorId: busDetails.conductorId || "",
+      conductorName: getSafeConductorName(busDetails),
+      timestamp: Date.now().toString(), // Already a string
       inspectionFrom,
       inspectionTo,
-      passengerCount: passengers.length,
+      passengerCount: passengers.length.toString(), // Convert to string for Appwrite
       status: "cleared",
     }
 
@@ -149,12 +171,12 @@ export async function getInspectionHistory(inspectorId: string): Promise<Inspect
       inspectorId: doc.inspectorId,
       busId: doc.busId,
       busNumber: doc.busNumber,
-      conductorId: doc.conductorId,
-      conductorName: doc.conductorName || "Unknown Conductor",
-      timestamp: Number.parseInt(doc.timestamp),
+      conductorId: doc.conductorId || "",
+      conductorName: getSafeConductorName(doc),
+      timestamp: doc.timestamp, // Keep as string from Appwrite
       inspectionFrom: doc.inspectionFrom,
       inspectionTo: doc.inspectionTo,
-      passengerCount: Number.parseInt(doc.passengerCount) || 0,
+      passengerCount: doc.passengerCount, // Keep as string from Appwrite
       status: doc.status || "cleared",
     }))
   } catch (error) {
@@ -184,13 +206,15 @@ export async function getInspectorStats(inspectorId: string): Promise<{
 
     const inspections = response.documents
 
-    // Calculate statistics
+    // Calculate statistics - all values as strings for Appwrite
     const totalInspections = inspections.length.toString()
     const totalBusesCleared = inspections.filter((doc) => doc.status === "cleared").length.toString()
 
-    // Get last active timestamp
-    const lastActiveTimestamp = inspections.length > 0 ? Number.parseInt(inspections[0].timestamp) : Date.now()
-    const lastActive = new Date(lastActiveTimestamp).toLocaleDateString()
+    // Get last active timestamp - handle as string
+    const lastActiveTimestamp = inspections.length > 0 ? inspections[0].timestamp : Date.now().toString()
+    // Convert to Date for formatting, but keep original as string
+    // Fix: Convert string to number before passing to Date constructor
+    const lastActive = new Date(Number(lastActiveTimestamp)).toLocaleDateString()
 
     return {
       totalInspections,
