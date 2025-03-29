@@ -7,8 +7,7 @@ export interface DiscountConfig {
   discountPercentage: number;
   description?: string;
   active: boolean;
-  createdBy: string;
-  createdAt: number;
+  createdAt?: number;
 }
 
 // Get the discounts collection ID with fallback
@@ -55,8 +54,9 @@ export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
         discountPercentage: Number(doc.discountPercentage),
         description: doc.description,
         active: doc.active === true,
-        createdBy: doc.createdBy,
-        createdAt: Number(doc.createdAt),
+        createdAt: doc.$createdAt
+          ? new Date(doc.$createdAt).getTime()
+          : undefined,
       }));
     } catch (error) {
       console.error("Error fetching discounts:", error);
@@ -91,8 +91,8 @@ export async function saveDiscountConfiguration(
         discountPercentage: discount.discountPercentage.toString(),
         description: discount.description || "",
         active: discount.active,
-        createdBy: discount.createdBy,
-        createdAt: Date.now().toString(),
+        // Removed createdBy field as it's causing issues
+        // Appwrite will automatically add $createdAt
       }
     );
 
@@ -106,7 +106,7 @@ export async function saveDiscountConfiguration(
 // Update a discount configuration
 export async function updateDiscountConfiguration(
   id: string,
-  updates: Partial<Omit<DiscountConfig, "id" | "createdBy" | "createdAt">>
+  updates: Partial<Omit<DiscountConfig, "id" | "createdAt">>
 ): Promise<boolean> {
   try {
     const databaseId = config.databaseId;

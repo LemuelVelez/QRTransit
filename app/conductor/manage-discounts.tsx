@@ -175,7 +175,7 @@ export default function ManageDiscountsScreen() {
                 discountPercentage: discountPercentage,
                 description: newDiscountDescription,
                 active: true,
-                createdBy: conductorId,
+                // Removed createdBy field as it's causing issues
             }
 
             const discountId = await saveDiscountConfiguration(newDiscount)
@@ -187,7 +187,6 @@ export default function ManageDiscountsScreen() {
                     {
                         ...newDiscount,
                         id: discountId,
-                        createdAt: Date.now(),
                     },
                 ])
 

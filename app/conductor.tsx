@@ -12,7 +12,7 @@ import {
   RefreshControl,
 } from "react-native"
 import { useCameraPermissions, type BarcodeScanningResult } from "expo-camera"
-import { useRouter } from "expo-router"
+import { useRouter, useFocusEffect } from "expo-router"
 import { checkRoutePermission } from "@/lib/appwrite"
 import { getCurrentUser } from "@/lib/appwrite"
 import { getActiveRoute } from "@/lib/route-service"
@@ -48,6 +48,8 @@ export default function ConductorScreen() {
   const [conductorName, setConductorName] = useState("Conductor")
   const [paymentMethod, setPaymentMethod] = useState<"QR" | "Cash">("QR")
   const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string } | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0) // Add a refresh key for PassengerTypeSelector
+  const [needsRefresh, setNeedsRefresh] = useState(false)
 
   // Payment confirmation state
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
@@ -102,6 +104,11 @@ export default function ConductorScreen() {
       return false
     }
   }
+
+  // Function to refresh passenger types
+  const refreshPassengerTypes = useCallback(() => {
+    setRefreshKey((prev) => prev + 1)
+  }, [])
 
   useEffect(() => {
     async function checkAccess() {
@@ -189,7 +196,7 @@ export default function ConductorScreen() {
   }, [conductorId, currentPaymentRequest])
 
   useEffect(() => {
-    ; (async () => {
+    ;(async () => {
       if (!cameraPermission?.granted) {
         await requestCameraPermission()
       }
@@ -200,9 +207,10 @@ export default function ConductorScreen() {
     setRefreshing(true)
     if (conductorId) {
       await loadActiveRoute(conductorId)
+      refreshPassengerTypes() // Refresh passenger types on pull-to-refresh
     }
     setRefreshing(false)
-  }, [conductorId])
+  }, [conductorId, refreshPassengerTypes])
 
   const handleBarCodeScanned = ({ type, data }: BarcodeScanningResult) => {
     setScanned(true)
@@ -418,6 +426,34 @@ export default function ConductorScreen() {
     }
   }
 
+  // Handle navigation to manage discounts with refresh on return
+  const navigateToManageDiscounts = () => {
+    // Store a flag in state before navigating
+    setNeedsRefresh(true)
+    router.push({
+      pathname: "/conductor/manage-discounts" as any,
+    })
+  }
+
+  // We'll need to add a focus effect to refresh when returning to this screen
+  useFocusEffect(
+    useCallback(() => {
+      // This will run when the screen comes into focus
+      refreshPassengerTypes()
+
+      return () => {
+        // Optional cleanup
+      }
+    }, [refreshPassengerTypes]),
+  )
+
+  useEffect(() => {
+    if (needsRefresh) {
+      refreshPassengerTypes()
+      setNeedsRefresh(false)
+    }
+  }, [needsRefresh, refreshPassengerTypes])
+
   if (loading) {
     return (
       <View className="flex-1 justify-center items-center bg-emerald-400">
@@ -493,14 +529,7 @@ export default function ConductorScreen() {
                 >
                   <Ionicons name="map-outline" size={24} color="white" />
                 </TouchableOpacity>
-                <TouchableOpacity
-                  className="mr-2"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/conductor/manage-discounts" as any,
-                    })
-                  }
-                >
+                <TouchableOpacity className="mr-2" onPress={navigateToManageDiscounts}>
                   <Ionicons name="cash-outline" size={24} color="white" />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -537,7 +566,8 @@ export default function ConductorScreen() {
             </View>
           )}
 
-          <PassengerTypeSelector value={passengerType} onChange={setPassengerType} />
+          {/* Pass the key to force re-render when passenger types change */}
+          <PassengerTypeSelector key={refreshKey} value={passengerType} onChange={setPassengerType} />
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
 
