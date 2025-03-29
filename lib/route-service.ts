@@ -39,7 +39,7 @@ export async function saveRouteInfo(
         to: routeInfo.to,
         busNumber: routeInfo.busNumber,
         timestamp: routeInfo.timestamp.toString(),
-        active: true,
+        active: routeInfo.active === true, // Ensure boolean value
       }
     );
 
@@ -65,8 +65,8 @@ export async function getActiveRoute(
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.equal("active", true),
-      Query.orderDesc("timestamp"),
-      Query.limit(1),
+      Query.orderDesc("timestamp"), // Order by timestamp descending to get the latest
+      Query.limit(1), // Limit to 1 result
     ]);
 
     if (response.documents.length === 0) {
@@ -80,7 +80,7 @@ export async function getActiveRoute(
       to: route.to,
       busNumber: route.busNumber,
       timestamp: Number.parseInt(route.timestamp),
-      active: route.active,
+      active: route.active === true, // Ensure boolean value
     };
   } catch (error) {
     console.error("Error getting active route:", error);
@@ -132,7 +132,7 @@ export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
       to: route.to,
       busNumber: route.busNumber,
       timestamp: Number.parseInt(route.timestamp),
-      active: route.active,
+      active: route.active === true, // Ensure boolean value
       endTimestamp: route.endTimestamp
         ? Number.parseInt(route.endTimestamp)
         : undefined,
@@ -162,7 +162,12 @@ export async function updateRoute(
     if (updates.to !== undefined) updateData.to = updates.to;
     if (updates.busNumber !== undefined)
       updateData.busNumber = updates.busNumber;
-    if (updates.active !== undefined) updateData.active = updates.active;
+
+    // Explicitly handle the active field as a boolean
+    if (updates.active !== undefined) {
+      updateData.active = updates.active === true;
+      console.log("Setting active status to:", updateData.active);
+    }
 
     await databases.updateDocument(
       databaseId,

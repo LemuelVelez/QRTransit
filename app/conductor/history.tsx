@@ -1,7 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { View, Text, TouchableOpacity, FlatList, ActivityIndicator, StatusBar, Alert } from "react-native"
+import { useState, useEffect, useCallback } from "react"
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  FlatList,
+  ActivityIndicator,
+  StatusBar,
+  Alert,
+  RefreshControl,
+} from "react-native"
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
@@ -10,6 +19,7 @@ import { getTripHistory, getTripsByDateRange, type Trip } from "@/lib/trips-serv
 
 export default function TripHistoryScreen() {
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [trips, setTrips] = useState<Trip[]>([])
   const [filteredTrips, setFilteredTrips] = useState<Trip[]>([])
   const [startDate, setStartDate] = useState<Date | null>(null)
@@ -120,6 +130,14 @@ export default function TripHistoryScreen() {
     return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    if (conductorId) {
+      await loadTrips(conductorId)
+    }
+    setRefreshing(false)
+  }, [conductorId])
+
   if (loading) {
     return (
       <View className="flex-1 justify-center items-center bg-emerald-400">
@@ -177,14 +195,14 @@ export default function TripHistoryScreen() {
             data={filteredTrips}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity className="bg-white rounded-lg p-4 mb-3" onPress={() => handleViewDetails(item)}>
+              <TouchableOpacity
+                className="bg-white rounded-lg p-4 mb-3"
+                onPress={() => handleViewDetails(item)}
+                activeOpacity={0.7}
+              >
                 <View className="flex-row justify-between mb-2">
                   <Text className="font-bold text-black">{item.passengerName}</Text>
                   <Text className="font-bold text-emerald-600">{item.fare}</Text>
-                </View>
-                <View className="flex-row justify-between mb-1">
-                  <Text className="text-gray-600">From: {item.from}</Text>
-                  <Text className="text-gray-600">To: {item.to}</Text>
                 </View>
                 <View className="flex-row justify-between">
                   <Text className="text-gray-500">{formatDate(item.timestamp)}</Text>
@@ -193,8 +211,15 @@ export default function TripHistoryScreen() {
                     <Text className="text-gray-500 ml-1">{item.paymentMethod}</Text>
                   </View>
                 </View>
+                <View className="mt-2 flex-row justify-between items-center">
+                  <Text className="text-xs text-gray-400">Tap for details</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#059669" />
+                </View>
               </TouchableOpacity>
             )}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#059669"]} tintColor="#ffffff" />
+            }
           />
         )}
       </View>

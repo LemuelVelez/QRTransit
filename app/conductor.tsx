@@ -1,7 +1,16 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { View, Text, ScrollView, Alert, ActivityIndicator, StatusBar, TouchableOpacity } from "react-native"
+import { useState, useEffect, useRef, useCallback } from "react"
+import {
+  View,
+  Text,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+  StatusBar,
+  TouchableOpacity,
+  RefreshControl,
+} from "react-native"
 import { useCameraPermissions, type BarcodeScanningResult } from "expo-camera"
 import { useRouter } from "expo-router"
 import { checkRoutePermission } from "@/lib/appwrite"
@@ -34,6 +43,7 @@ export default function ConductorScreen() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [scanned, setScanned] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [conductorId, setConductorId] = useState("")
   const [conductorName, setConductorName] = useState("Conductor")
   const [paymentMethod, setPaymentMethod] = useState<"QR" | "Cash">("QR")
@@ -50,6 +60,48 @@ export default function ConductorScreen() {
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const router = useRouter()
+
+  const loadActiveRoute = async (userId: string) => {
+    try {
+      // Load active route
+      const activeRoute = await getActiveRoute(userId)
+      if (activeRoute) {
+        setRouteInfo({
+          from: activeRoute.from,
+          to: activeRoute.to,
+          busNumber: activeRoute.busNumber,
+        })
+        setFrom(activeRoute.from)
+        setTo(activeRoute.to)
+      } else {
+        // No active route, redirect to route setup
+        Alert.alert("No Active Route", "You don't have an active route. Please set up or activate a route.", [
+          {
+            text: "Set Up Route",
+            onPress: () => {
+              router.replace({
+                pathname: "/conductor/route-setup" as any,
+              })
+            },
+          },
+          {
+            text: "Manage Routes",
+            onPress: () => {
+              router.replace({
+                pathname: "/conductor/manage-routes" as any,
+              })
+            },
+          },
+        ])
+        return false
+      }
+      return true
+    } catch (error) {
+      console.error("Error loading active route:", error)
+      Alert.alert("Error", "Failed to load active route.")
+      return false
+    }
+  }
 
   useEffect(() => {
     async function checkAccess() {
@@ -76,20 +128,8 @@ export default function ConductorScreen() {
             )
 
             // Load active route
-            const activeRoute = await getActiveRoute(user.$id || "")
-            if (activeRoute) {
-              setRouteInfo({
-                from: activeRoute.from,
-                to: activeRoute.to,
-                busNumber: activeRoute.busNumber,
-              })
-              setFrom(activeRoute.from)
-              setTo(activeRoute.to)
-            } else {
-              // No active route, redirect to route setup
-              router.replace({
-                pathname: "/conductor/route-setup" as any,
-              })
+            const hasActiveRoute = await loadActiveRoute(user.$id || "")
+            if (!hasActiveRoute) {
               return
             }
           }
@@ -156,26 +196,13 @@ export default function ConductorScreen() {
     })()
   }, [cameraPermission, requestCameraPermission])
 
-  useEffect(() => {
-    if (kilometer) {
-      const km = Number.parseFloat(kilometer)
-      let baseFare = 10 + km * 2 // ₱10 flag down rate + ₱2 per km
-
-      switch (passengerType) {
-        case "Student":
-        case "Senior citizen":
-        case "Person's with Disabilities":
-          baseFare = baseFare * 0.8 // 20% discount
-          break
-        default:
-          break
-      }
-
-      setFare(`₱${baseFare.toFixed(2)}`)
-    } else {
-      setFare("")
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    if (conductorId) {
+      await loadActiveRoute(conductorId)
     }
-  }, [kilometer, passengerType])
+    setRefreshing(false)
+  }, [conductorId])
 
   const handleBarCodeScanned = ({ type, data }: BarcodeScanningResult) => {
     setScanned(true)
@@ -220,10 +247,16 @@ export default function ConductorScreen() {
     setCapturedImage(uri)
     setShowCameraCapture(false)
 
-    // For cash payment, create a dummy passenger
+    // Generate a unique ID for the cash customer
+    const uniqueId = Date.now().toString().slice(-4)
+
+    // Create a unique passenger name with ID
+    const uniquePassengerName = `Customer #${uniqueId}`
+
+    // For cash payment, create a passenger with unique name
     setPassengerData({
       userId: "cash_passenger_" + Date.now(),
-      name: "Cash Customer",
+      name: uniquePassengerName,
     })
     setShowPaymentConfirmation(true)
   }
@@ -423,7 +456,12 @@ export default function ConductorScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      <ScrollView className="flex-1 p-4">
+      <ScrollView
+        className="flex-1 p-4"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#059669"]} tintColor="#ffffff" />
+        }
+      >
         <View className="mt-16">
           {/* Route Info Banner */}
           {routeInfo && (
@@ -456,6 +494,16 @@ export default function ConductorScreen() {
                   <Ionicons name="map-outline" size={24} color="white" />
                 </TouchableOpacity>
                 <TouchableOpacity
+                  className="mr-2"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/conductor/manage-discounts" as any,
+                    })
+                  }
+                >
+                  <Ionicons name="cash-outline" size={24} color="white" />
+                </TouchableOpacity>
+                <TouchableOpacity
                   onPress={() =>
                     router.push({
                       pathname: "/conductor/profile" as any,
@@ -463,6 +511,27 @@ export default function ConductorScreen() {
                   }
                 >
                   <Ionicons name="person-outline" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {!routeInfo && (
+            <View className="bg-red-500 rounded-lg p-4 mb-4">
+              <Text className="text-white font-bold text-center">No Active Route</Text>
+              <Text className="text-white text-center mt-1">Please set up or activate a route</Text>
+              <View className="flex-row justify-center mt-3">
+                <TouchableOpacity
+                  className="bg-white px-4 py-2 rounded-lg mr-2"
+                  onPress={() => router.push("/conductor/route-setup" as any)}
+                >
+                  <Text className="text-red-500 font-bold">Set Up Route</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="bg-white px-4 py-2 rounded-lg"
+                  onPress={() => router.push("/conductor/manage-routes" as any)}
+                >
+                  <Text className="text-red-500 font-bold">Manage Routes</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -479,7 +548,9 @@ export default function ConductorScreen() {
             to={to}
             kilometer={kilometer}
             fare={fare}
+            passengerType={passengerType}
             onKilometerChange={setKilometer}
+            onFareChange={setFare}
           />
         </View>
       </ScrollView>
@@ -489,6 +560,7 @@ export default function ConductorScreen() {
         <TouchableOpacity
           className="bg-emerald-700 p-4 rounded-l-lg flex-row items-center"
           onPress={() => handlePaymentMethodChange("QR")}
+          disabled={!routeInfo}
         >
           <Ionicons name="qr-code" size={24} color="white" className="mr-2" />
           <Text className="text-white font-bold">QR Payment</Text>
@@ -497,6 +569,7 @@ export default function ConductorScreen() {
         <TouchableOpacity
           className="bg-emerald-600 p-4 rounded-r-lg flex-row items-center"
           onPress={() => handlePaymentMethodChange("Cash")}
+          disabled={!routeInfo}
         >
           <Ionicons name="cash" size={24} color="white" className="mr-2" />
           <Text className="text-white font-bold">Cash Payment</Text>

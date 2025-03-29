@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from "react-native"
+import { View, Text, TouchableOpacity, StyleSheet, StatusBar, ActivityIndicator } from "react-native"
 import { CameraView } from "expo-camera"
 import { Ionicons } from "@expo/vector-icons"
+import { uploadPassengerPhoto } from "@/lib/image-upload-service"
 
 interface CameraCaptureProps {
     onCapture: (uri: string) => void
@@ -13,19 +14,34 @@ interface CameraCaptureProps {
 export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps) {
     const [flash, setFlash] = useState(false)
     const [isTakingPicture, setIsTakingPicture] = useState(false)
+    const [isUploading, setIsUploading] = useState(false)
     const cameraRef = useRef<CameraView>(null)
 
     const toggleFlash = () => setFlash(!flash)
 
     const takePicture = async () => {
-        if (isTakingPicture || !cameraRef.current) return
+        if (isTakingPicture || isUploading || !cameraRef.current) return
 
         setIsTakingPicture(true)
         try {
-            const photo = await cameraRef.current.takePictureAsync()
+            const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 })
+
             // Check if photo exists and has a uri before using it
             if (photo && photo.uri) {
-                onCapture(photo.uri)
+                setIsUploading(true)
+
+                // Upload the photo to Appwrite storage
+                const photoUrl = await uploadPassengerPhoto(photo.uri)
+
+                if (photoUrl) {
+                    console.log("Photo uploaded successfully:", photoUrl)
+                    // Pass the uploaded URL to the parent component
+                    onCapture(photoUrl)
+                } else {
+                    console.error("Failed to upload photo to Appwrite storage")
+                    // Fall back to local URI if upload failed
+                    onCapture(photo.uri)
+                }
             } else {
                 console.error("Failed to capture photo: No URI available")
             }
@@ -33,6 +49,7 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
             console.error("Error taking picture:", error)
         } finally {
             setIsTakingPicture(false)
+            setIsUploading(false)
         }
     }
 
@@ -61,13 +78,20 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
 
             {/* Capture Button */}
             <View style={styles.captureContainer}>
-                <TouchableOpacity
-                    style={[styles.captureButton, isTakingPicture && styles.captureButtonDisabled]}
-                    onPress={takePicture}
-                    disabled={isTakingPicture}
-                >
-                    {isTakingPicture ? <View style={styles.capturingIndicator} /> : <View style={styles.captureButtonInner} />}
-                </TouchableOpacity>
+                {isUploading ? (
+                    <View style={styles.uploadingContainer}>
+                        <ActivityIndicator size="large" color="white" />
+                        <Text style={styles.uploadingText}>Uploading photo...</Text>
+                    </View>
+                ) : (
+                    <TouchableOpacity
+                        style={[styles.captureButton, isTakingPicture && styles.captureButtonDisabled]}
+                        onPress={takePicture}
+                        disabled={isTakingPicture || isUploading}
+                    >
+                        {isTakingPicture ? <View style={styles.capturingIndicator} /> : <View style={styles.captureButtonInner} />}
+                    </TouchableOpacity>
+                )}
             </View>
         </View>
     )
@@ -148,6 +172,13 @@ const styles = StyleSheet.create({
         height: 30,
         borderRadius: 15,
         backgroundColor: "#ff4040",
+    },
+    uploadingContainer: {
+        alignItems: "center",
+    },
+    uploadingText: {
+        color: "white",
+        marginTop: 10,
     },
 })
 

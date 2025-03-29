@@ -1,7 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { View, Text, ScrollView, Image, TouchableOpacity, ActivityIndicator, StatusBar, Alert } from "react-native"
+import { useState, useEffect, useCallback } from "react"
+import {
+  View,
+  Text,
+  ScrollView,
+  Image,
+  TouchableOpacity,
+  ActivityIndicator,
+  StatusBar,
+  Alert,
+  RefreshControl,
+} from "react-native"
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { checkRoutePermission, getCurrentUser, logoutUser } from "@/lib/appwrite"
@@ -16,6 +26,7 @@ interface ConductorStats {
 
 export default function ConductorProfileScreen() {
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [user, setUser] = useState<any>(null)
   const [stats, setStats] = useState<ConductorStats>({
     totalTrips: "0",
@@ -25,36 +36,42 @@ export default function ConductorProfileScreen() {
   })
   const router = useRouter()
 
-  useEffect(() => {
-    async function loadProfile() {
-      try {
-        // Check if user has conductor role specifically
-        const hasPermission = await checkRoutePermission("conductor")
+  const loadProfile = async () => {
+    try {
+      // Check if user has conductor role specifically
+      const hasPermission = await checkRoutePermission("conductor")
 
-        if (!hasPermission) {
-          Alert.alert("Access Denied", "You don't have permission to access this screen.")
-          router.replace("/")
-          return
-        }
-
-        // Load conductor info
-        const currentUser = await getCurrentUser()
-        if (currentUser) {
-          setUser(currentUser)
-
-          // Load conductor stats
-          const conductorStats = await getUserStats(currentUser.$id)
-          setStats(conductorStats)
-        }
-      } catch (error) {
-        console.error("Error loading profile:", error)
-        Alert.alert("Error", "Failed to load profile information.")
-      } finally {
-        setLoading(false)
+      if (!hasPermission) {
+        Alert.alert("Access Denied", "You don't have permission to access this screen.")
+        router.replace("/")
+        return
       }
-    }
 
+      // Load conductor info
+      const currentUser = await getCurrentUser()
+      if (currentUser) {
+        setUser(currentUser)
+
+        // Load conductor stats
+        const conductorStats = await getUserStats(currentUser.$id)
+        setStats(conductorStats)
+      }
+    } catch (error) {
+      console.error("Error loading profile:", error)
+      Alert.alert("Error", "Failed to load profile information.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
     loadProfile()
+  }, [])
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await loadProfile()
+    setRefreshing(false)
   }, [])
 
   const handleLogout = async () => {
@@ -108,7 +125,12 @@ export default function ConductorProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView className="flex-1 p-4">
+      <ScrollView
+        className="flex-1 p-4"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#059669"]} tintColor="#ffffff" />
+        }
+      >
         {/* Profile Card */}
         <View className="bg-white rounded-lg p-6 mb-4 items-center">
           <View className="w-24 h-24 bg-emerald-100 rounded-full justify-center items-center mb-4">
@@ -188,7 +210,17 @@ export default function ConductorProfileScreen() {
             <Text className="text-gray-700">Set Up New Route</Text>
             <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
           </TouchableOpacity>
-
+          <TouchableOpacity
+            className="flex-row items-center py-3 border-b border-gray-100"
+            onPress={() => {
+              const router = useRouter()
+              router.push("/conductor/manage-discounts")
+            }}
+          >
+            <Ionicons name="cash-outline" size={20} color="#059669" className="mr-4" />
+            <Text className="text-gray-700">Manage Discounts</Text>
+            <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
+          </TouchableOpacity>
           <TouchableOpacity
             className="flex-row items-center py-3"
             onPress={() => Alert.alert("Help", "Contact support at support@quickride.com")}

@@ -16,7 +16,8 @@ export const config = {
   databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
   usersCollectionId: process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID,
   avatarBucketId: process.env.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID,
-};
+  discountsCollectionId: process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID,
+}
 
 export const client = new Client();
 client.setEndpoint(config.endpoint!).setProject(config.projectId!);

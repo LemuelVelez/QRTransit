@@ -10,6 +10,7 @@ import {
     Alert,
     StatusBar,
     RefreshControl,
+    Switch,
 } from "react-native"
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
@@ -73,6 +74,44 @@ export default function ManageRoutesScreen() {
         setShowEditModal(true)
     }
 
+    const handleToggleActive = async (route: RouteInfo) => {
+        try {
+            if (!route.id) {
+                Alert.alert("Error", "Route ID is missing")
+                return
+            }
+
+            setLoading(true)
+
+            // Toggle the active status
+            const newActiveStatus = !(route.active === true)
+
+            console.log(`Toggling route ${route.id} active status from ${route.active} to ${newActiveStatus}`)
+
+            const success = await updateRoute(route.id, {
+                active: newActiveStatus,
+            })
+
+            if (success) {
+                // Update the route in the state
+                const updatedRoutes = routes.map((r) => (r.id === route.id ? { ...r, active: newActiveStatus } : r))
+                setRoutes(updatedRoutes)
+
+                Alert.alert("Success", `Route ${newActiveStatus ? "activated" : "deactivated"} successfully`)
+
+                // Refresh routes to ensure we have the latest data
+                await loadRoutes(conductorId)
+            } else {
+                Alert.alert("Error", "Failed to update route status")
+            }
+        } catch (error) {
+            console.error("Error toggling route status:", error)
+            Alert.alert("Error", "Failed to update route status")
+        } finally {
+            setLoading(false)
+        }
+    }
+
     const handleDeleteRoute = (route: RouteInfo) => {
         Alert.alert("Delete Route", `Are you sure you want to delete the route from ${route.from} to ${route.to}?`, [
             { text: "Cancel", style: "cancel" },
@@ -119,6 +158,7 @@ export default function ManageRoutesScreen() {
                 from: updatedRoute.from,
                 to: updatedRoute.to,
                 busNumber: updatedRoute.busNumber,
+                active: updatedRoute.active,
             })
 
             if (success) {
@@ -126,6 +166,9 @@ export default function ManageRoutesScreen() {
                 setRoutes(routes.map((r) => (r.id === updatedRoute.id ? updatedRoute : r)))
                 setShowEditModal(false)
                 Alert.alert("Success", "Route updated successfully")
+
+                // Refresh routes to ensure we have the latest data
+                await loadRoutes(conductorId)
             } else {
                 Alert.alert("Error", "Failed to update route")
             }
@@ -189,12 +232,14 @@ export default function ManageRoutesScreen() {
                         <View key={route.id || index} className="bg-white rounded-lg p-4 mb-4 shadow-sm">
                             <View className="flex-row justify-between items-center mb-2">
                                 <View className="flex-row items-center">
-                                    <Ionicons
-                                        name={route.active ? "radio-button-on" : "radio-button-off"}
-                                        size={16}
-                                        color={route.active ? "#059669" : "#9ca3af"}
+                                    <Switch
+                                        value={route.active === true}
+                                        onValueChange={() => handleToggleActive(route)}
+                                        trackColor={{ false: "#d1d5db", true: "#10b981" }}
+                                        thumbColor="#ffffff"
+                                        disabled={loading}
                                     />
-                                    <Text className="ml-2 text-gray-500">{route.active ? "Active" : "Inactive"}</Text>
+                                    <Text className="ml-2 text-gray-500">{route.active === true ? "Active" : "Inactive"}</Text>
                                 </View>
                                 <Text className="text-gray-500 text-xs">{formatDate(route.timestamp)}</Text>
                             </View>

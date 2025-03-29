@@ -1,16 +1,18 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, StatusBar } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, StatusBar, Switch } from "react-native"
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { getCurrentUser } from "@/lib/appwrite"
 import { saveRouteInfo } from "@/lib/route-service"
+import LocationInput from "@/components/location-input"
 
 export default function RouteSetupScreen() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [busNumber, setBusNumber] = useState("")
+  const [active, setActive] = useState(false) // Default to inactive
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [conductorId, setConductorId] = useState("")
@@ -54,6 +56,7 @@ export default function RouteSetupScreen() {
         to,
         busNumber,
         timestamp: Date.now(),
+        active: active, // Use the active state
       }
 
       await saveRouteInfo(conductorId, routeInfo)
@@ -98,35 +101,11 @@ export default function RouteSetupScreen() {
         <View className="bg-white rounded-lg p-6 shadow-sm">
           <Text className="text-xl font-bold text-gray-800 mb-6">Route Information</Text>
 
-          <View className="mb-4">
-            <Text className="text-gray-700 mb-1 font-medium">From</Text>
-            <View className="flex-row items-center">
-              <Ionicons name="location" size={24} color="#059669" className="mr-2" />
-              <TextInput
-                className="flex-1 border border-gray-300 rounded-md p-3 bg-gray-50"
-                value={from}
-                onChangeText={setFrom}
-                placeholder="Starting point"
-                editable={!loading}
-              />
-            </View>
-          </View>
+          <LocationInput label="From" value={from} onChange={setFrom} placeholder="Starting point" />
+
+          <LocationInput label="To" value={to} onChange={setTo} placeholder="Destination" />
 
           <View className="mb-4">
-            <Text className="text-gray-700 mb-1 font-medium">To</Text>
-            <View className="flex-row items-center">
-              <Ionicons name="location-outline" size={24} color="#059669" className="mr-2" />
-              <TextInput
-                className="flex-1 border border-gray-300 rounded-md p-3 bg-gray-50"
-                value={to}
-                onChangeText={setTo}
-                placeholder="Destination"
-                editable={!loading}
-              />
-            </View>
-          </View>
-
-          <View className="mb-6">
             <Text className="text-gray-700 mb-1 font-medium">Bus Number</Text>
             <View className="flex-row items-center">
               <Ionicons name="bus-outline" size={24} color="#059669" className="mr-2" />
@@ -138,6 +117,17 @@ export default function RouteSetupScreen() {
                 editable={!loading}
               />
             </View>
+          </View>
+
+          <View className="mb-6 flex-row justify-between items-center">
+            <Text className="text-gray-700 font-medium">Activate Route</Text>
+            <Switch
+              value={active}
+              onValueChange={setActive}
+              trackColor={{ false: "#d1d5db", true: "#10b981" }}
+              thumbColor="#ffffff"
+              disabled={loading}
+            />
           </View>
 
           <TouchableOpacity
