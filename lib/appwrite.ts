@@ -16,8 +16,9 @@ export const config = {
   databaseId: process.env.EXPO_PUBLIC_APPWRITE_DATABASE_ID,
   usersCollectionId: process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID,
   avatarBucketId: process.env.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID,
-  discountsCollectionId: process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID,
-}
+  discountsCollectionId:
+    process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID,
+};
 
 export const client = new Client();
 client.setEndpoint(config.endpoint!).setProject(config.projectId!);
@@ -493,11 +494,14 @@ export async function getUserRoleAndRedirect() {
 
     // Redirect based on role
     if (role === "conductor") {
-      // For React Native, you would use navigation instead of window.location
-      // This is a placeholder - replace with your navigation method
       return {
         role: "conductor",
         redirectTo: "/conductor",
+      };
+    } else if (role === "inspector") {
+      return {
+        role: "inspector",
+        redirectTo: "/inspector",
       };
     } else {
       // Default to passenger role

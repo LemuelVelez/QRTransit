@@ -29,7 +29,7 @@ export default function PinEntryScreen() {
                 }
 
                 // Check if user has permission to access this screen
-                const hasPermission = await checkRoutePermission(["passenger", "conductor"]) // Allow both passenger and conductor roles
+                const hasPermission = await checkRoutePermission(["passenger", "conductor", "inspector"]) // Allow both passenger and conductor roles
                 if (!hasPermission) {
                     Alert.alert("Access Denied", "You don't have permission to access this screen.")
                     router.replace("/sign-in")
@@ -65,15 +65,17 @@ export default function PinEntryScreen() {
     // Function to handle role-based navigation
     const navigateBasedOnRole = (role: string) => {
         console.log(`Navigating based on role: ${role}`)
-
+    
         // Use type-safe navigation based on role
         if (role === "conductor") {
-            router.replace("/conductor")
+          router.replace("/conductor")
+        } else if (role === "inspector") {
+          router.replace("/inspector")
         } else {
-            // Default to passenger role
-            router.replace("/")
+          // Default to passenger role
+          router.replace("/")
         }
-    }
+      }
 
     const verifyPinAndProceed = async (enteredPin: string) => {
         try {
