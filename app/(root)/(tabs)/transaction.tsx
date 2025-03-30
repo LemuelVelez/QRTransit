@@ -3,6 +3,9 @@
 import React, { useState, useEffect } from "react"
 import { View, Text, TouchableOpacity, FlatList, SafeAreaView, ActivityIndicator } from "react-native"
 import { getAllUserTransactions, getAuthUserId } from "@/lib/transaction-service"
+import { useRouter } from "expo-router"
+import { Ionicons } from "@expo/vector-icons"
+import DateRangePicker from "@/components/date-range-picker"
 
 // Updated transaction type to match our new model without status
 type Transaction = {
@@ -27,6 +30,11 @@ export default function TransactionHistory() {
       year: "numeric",
     }),
   )
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [startDate, setStartDate] = useState<Date | null>(null)
+  const [endDate, setEndDate] = useState<Date | null>(null)
+  const [userId, setUserId] = useState<string>("")
+  const router = useRouter()
 
   // Format transaction type to be more readable
   const formatTransactionType = (type: string): string => {
@@ -52,6 +60,7 @@ export default function TransactionHistory() {
       // Get the auth user ID directly instead of using getCurrentUser
       // This ensures we're using the same ID as in transaction-service.ts
       const authUserId = await getAuthUserId()
+      setUserId(authUserId)
 
       if (!authUserId) {
         console.log("No authenticated user found")
@@ -66,8 +75,19 @@ export default function TransactionHistory() {
 
       console.log(`Retrieved ${appwriteTransactions.length} transactions`)
 
+      // Filter by date range if set
+      let filteredTransactions = appwriteTransactions
+      if (startDate && endDate) {
+        const startTimestamp = startDate.setHours(0, 0, 0, 0)
+        const endTimestamp = endDate.setHours(23, 59, 59, 999)
+
+        filteredTransactions = appwriteTransactions.filter(
+          (transaction) => transaction.timestamp >= startTimestamp && transaction.timestamp <= endTimestamp,
+        )
+      }
+
       // Convert Appwrite transactions to match your UI format
-      const formattedTransactions: Transaction[] = appwriteTransactions.map((transaction) => {
+      const formattedTransactions: Transaction[] = filteredTransactions.map((transaction) => {
         const date = new Date(transaction.timestamp)
 
         return {
@@ -104,7 +124,7 @@ export default function TransactionHistory() {
   // Load transactions on component mount
   useEffect(() => {
     loadTransactions()
-  }, [])
+  }, [startDate, endDate])
 
   // Handle refresh
   const handleRefresh = () => {
@@ -140,8 +160,32 @@ export default function TransactionHistory() {
     }).format(Math.abs(amount))
   }
 
+  const handleSelectDates = (start: Date | null, end: Date | null) => {
+    setStartDate(start)
+    setEndDate(end)
+    setShowDatePicker(false)
+  }
+
+  const clearDateFilter = () => {
+    setStartDate(null)
+    setEndDate(null)
+  }
+
+  const handleTransactionPress = (transaction: Transaction) => {
+    router.push({
+      pathname: "/transaction-detail",
+      params: {
+        id: transaction.id,
+        userId: userId,
+      },
+    })
+  }
+
   const renderTransaction = ({ item: transaction }: { item: Transaction }) => (
-    <TouchableOpacity className="p-3 bg-gray-50 rounded-lg mb-2 active:bg-gray-100">
+    <TouchableOpacity
+      className="p-3 bg-gray-50 rounded-lg mb-2 active:bg-gray-100"
+      onPress={() => handleTransactionPress(transaction)}
+    >
       <View className="flex-row justify-between items-start">
         <View>
           <Text className="font-medium">{formatTransactionType(transaction.type)}</Text>
@@ -180,10 +224,29 @@ export default function TransactionHistory() {
         <View className="bg-emerald-500 p-4">
           <View className="flex-row justify-between items-center mb-2">
             <Text className="text-2xl font-bold text-white">Transaction</Text>
+            <TouchableOpacity
+              onPress={() => setShowDatePicker(true)}
+              className="bg-emerald-600 px-3 py-1.5 rounded-full flex-row items-center"
+            >
+              <Ionicons name="calendar-outline" size={16} color="white" />
+              <Text className="text-white ml-1">Filter</Text>
+            </TouchableOpacity>
           </View>
         </View>
         <View className="px-4 py-2 bg-emerald-600/50">
-          <Text className="text-sm text-white">As of {currentDate}</Text>
+          <View className="flex-row justify-between items-center">
+            <Text className="text-sm text-white">As of {currentDate}</Text>
+            {(startDate || endDate) && (
+              <View className="flex-row items-center">
+                <Text className="text-white text-sm">
+                  {startDate?.toLocaleDateString()} - {endDate?.toLocaleDateString()}
+                </Text>
+                <TouchableOpacity onPress={clearDateFilter} className="ml-2">
+                  <Ionicons name="close-circle" size={16} color="white" />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
 
         {loading ? (
@@ -202,11 +265,25 @@ export default function TransactionHistory() {
             ListEmptyComponent={
               <View className="p-8 items-center">
                 <Text className="text-gray-500">No transactions found</Text>
+                {(startDate || endDate) && (
+                  <TouchableOpacity className="mt-4 bg-emerald-100 px-4 py-2 rounded-lg" onPress={clearDateFilter}>
+                    <Text className="text-emerald-600">Clear date filter</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             }
           />
         )}
       </View>
+
+      {/* Date Range Picker Modal */}
+      <DateRangePicker
+        visible={showDatePicker}
+        startDate={startDate}
+        endDate={endDate}
+        onSelectDates={handleSelectDates}
+        onCancel={() => setShowDatePicker(false)}
+      />
     </SafeAreaView>
   )
 }

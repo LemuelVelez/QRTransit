@@ -9,11 +9,16 @@ import {
   markAllNotificationsAsRead,
   type Notification,
 } from "@/lib/transaction-service"
+import DateRangePicker from "@/components/date-range-picker"
 
 export default function Inbox() {
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const [startDate, setStartDate] = useState<Date | null>(null)
+  const [endDate, setEndDate] = useState<Date | null>(null)
 
   // Function to load notifications
   const loadNotifications = async () => {
@@ -23,6 +28,13 @@ export default function Inbox() {
       const userNotifications = await getUserNotifications()
       console.log("Notifications received:", userNotifications.length)
       setNotifications(userNotifications)
+
+      // Apply date filter if set
+      if (startDate && endDate) {
+        filterNotificationsByDate(userNotifications)
+      } else {
+        setFilteredNotifications(userNotifications)
+      }
     } catch (error) {
       console.error("Error loading notifications:", error)
     } finally {
@@ -35,6 +47,48 @@ export default function Inbox() {
   useEffect(() => {
     loadNotifications()
   }, [])
+
+  // Filter notifications when date range changes
+  useEffect(() => {
+    if (notifications.length > 0) {
+      if (startDate && endDate) {
+        filterNotificationsByDate(notifications)
+      } else {
+        setFilteredNotifications(notifications)
+      }
+    }
+  }, [startDate, endDate])
+
+  // Filter notifications by date range
+  const filterNotificationsByDate = (notificationsToFilter: Notification[]) => {
+    if (!startDate || !endDate) {
+      setFilteredNotifications(notificationsToFilter)
+      return
+    }
+
+    const startTimestamp = startDate.setHours(0, 0, 0, 0)
+    const endTimestamp = endDate.setHours(23, 59, 59, 999)
+
+    const filtered = notificationsToFilter.filter(
+      (notification) => notification.timestamp >= startTimestamp && notification.timestamp <= endTimestamp,
+    )
+
+    setFilteredNotifications(filtered)
+  }
+
+  // Handle date selection
+  const handleSelectDates = (start: Date | null, end: Date | null) => {
+    setStartDate(start)
+    setEndDate(end)
+    setShowDatePicker(false)
+  }
+
+  // Clear date filter
+  const clearDateFilter = () => {
+    setStartDate(null)
+    setEndDate(null)
+    setFilteredNotifications(notifications)
+  }
 
   // Handle pull-to-refresh
   const onRefresh = async () => {
@@ -50,6 +104,9 @@ export default function Inbox() {
       setNotifications((prevNotifications) =>
         prevNotifications.map((n) => (n.id === notification.id ? { ...n, read: true } : n)),
       )
+      setFilteredNotifications((prevNotifications) =>
+        prevNotifications.map((n) => (n.id === notification.id ? { ...n, read: true } : n)),
+      )
     } catch (error) {
       console.error("Error marking notification as read:", error)
     }
@@ -61,6 +118,7 @@ export default function Inbox() {
       await markAllNotificationsAsRead()
       // Update all notifications in local state
       setNotifications((prevNotifications) => prevNotifications.map((n) => ({ ...n, read: true })))
+      setFilteredNotifications((prevNotifications) => prevNotifications.map((n) => ({ ...n, read: true })))
     } catch (error) {
       console.error("Error marking all notifications as read:", error)
     }
@@ -68,7 +126,7 @@ export default function Inbox() {
 
   // Group notifications by date
   const groupedNotifications: { [key: string]: Notification[] } = {}
-  notifications.forEach((notification) => {
+  filteredNotifications.forEach((notification) => {
     // Extract just the date part for grouping
     const dateKey = notification.date.includes(" at ") ? notification.date.split(" at ")[0] : notification.date
 
@@ -84,12 +142,29 @@ export default function Inbox() {
         <Text className="text-xl font-semibold text-white">Inbox</Text>
       </View>
 
-      {/* Mark all as read button */}
+      {/* Filter and Mark all as read buttons */}
       <View className="bg-emerald-300 px-4 py-2 flex-row justify-between items-center">
-        <Text className="text-sm font-medium">Your Notifications</Text>
-        <TouchableOpacity onPress={handleMarkAllAsRead}>
-          <Text className="text-sm text-emerald-800">Mark all as read</Text>
-        </TouchableOpacity>
+        <View className="flex-row items-center">
+          <Text className="text-sm font-medium">Your Notifications</Text>
+          {(startDate || endDate) && (
+            <View className="flex-row items-center ml-2">
+              <Text className="text-xs text-emerald-800">
+                {startDate?.toLocaleDateString()} - {endDate?.toLocaleDateString()}
+              </Text>
+              <TouchableOpacity onPress={clearDateFilter} className="ml-1">
+                <Ionicons name="close-circle" size={14} color="#065f46" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+        <View className="flex-row">
+          <TouchableOpacity className="mr-3" onPress={() => setShowDatePicker(true)}>
+            <Ionicons name="calendar-outline" size={18} color="#065f46" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleMarkAllAsRead}>
+            <Text className="text-sm text-emerald-800">Mark all as read</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (
@@ -99,15 +174,22 @@ export default function Inbox() {
       ) : (
         <ScrollView
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          contentContainerStyle={notifications.length === 0 ? { flexGrow: 1, justifyContent: "center" } : {}}
+          contentContainerStyle={filteredNotifications.length === 0 ? { flexGrow: 1, justifyContent: "center" } : {}}
         >
-          {notifications.length === 0 ? (
+          {filteredNotifications.length === 0 ? (
             <View className="items-center p-4">
               <Ionicons name="mail-open-outline" size={64} color="#059669" />
-              <Text className="text-lg text-gray-700 mt-4">No notifications yet</Text>
+              <Text className="text-lg text-gray-700 mt-4">No notifications found</Text>
               <Text className="text-sm text-gray-500 text-center mt-2">
-                When you receive money or have account activity, you'll see notifications here.
+                {startDate || endDate
+                  ? "No notifications found for the selected date range."
+                  : "When you receive money or have account activity, you'll see notifications here."}
               </Text>
+              {(startDate || endDate) && (
+                <TouchableOpacity className="mt-4 bg-emerald-100 px-4 py-2 rounded-lg" onPress={clearDateFilter}>
+                  <Text className="text-emerald-600">Clear date filter</Text>
+                </TouchableOpacity>
+              )}
               <Text className="text-xs text-gray-400 mt-6">Pull down to refresh</Text>
             </View>
           ) : (
@@ -152,6 +234,15 @@ export default function Inbox() {
           )}
         </ScrollView>
       )}
+
+      {/* Date Range Picker Modal */}
+      <DateRangePicker
+        visible={showDatePicker}
+        startDate={startDate}
+        endDate={endDate}
+        onSelectDates={handleSelectDates}
+        onCancel={() => setShowDatePicker(false)}
+      />
     </SafeAreaView>
   )
 }

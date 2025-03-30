@@ -18,7 +18,13 @@ import {
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { createPaymentLink, openPaymentUrl, PAYMONGO_MIN_AMOUNT } from "@/lib/paymongo-api"
-import { saveTransaction, generateTransactionId, updateTransactionStatus } from "@/lib/transaction-service"
+import {
+    saveTransaction,
+    generateTransactionId,
+    updateTransactionStatus,
+    getCurrentUserBalance,
+    WALLET_LIMIT,
+} from "@/lib/transaction-service"
 import { getCurrentUser } from "@/lib/appwrite"
 
 export default function CashInScreen() {
@@ -28,22 +34,33 @@ export default function CashInScreen() {
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null)
+    const [currentBalance, setCurrentBalance] = useState<number>(0)
+    const [isLoadingBalance, setIsLoadingBalance] = useState(true)
 
     // Fetch current user on component mount
     useEffect(() => {
         const fetchUser = async () => {
             try {
+                setIsLoadingBalance(true)
                 const currentUser = await getCurrentUser()
                 setUser(currentUser)
 
                 if (!currentUser) {
                     Alert.alert("Error", "You must be logged in to perform this action")
                     router.back()
+                    return
                 }
+
+                // Get current balance
+                const balance = await getCurrentUserBalance()
+                setCurrentBalance(balance)
+                setIsLoadingBalance(false)
             } catch (error) {
                 console.error("Error fetching user:", error)
                 Alert.alert("Error", "Failed to load user information")
                 router.back()
+            } finally {
+                setIsLoadingBalance(false)
             }
         }
 
@@ -104,6 +121,15 @@ export default function CashInScreen() {
             return false
         }
 
+        // Check wallet limit
+        const amountValue = Number.parseFloat(amount)
+        if (currentBalance + amountValue > WALLET_LIMIT) {
+            setError(
+                `This transaction would exceed your wallet limit of ₱${WALLET_LIMIT.toLocaleString()}. Maximum amount you can add is ₱${(WALLET_LIMIT - currentBalance).toLocaleString()}.`,
+            )
+            return false
+        }
+
         setError(null)
         return true
     }
@@ -149,7 +175,6 @@ export default function CashInScreen() {
                 type: "CASH_IN",
                 amount: Number.parseFloat(amount),
                 description: description,
-                status: "PENDING",
                 paymentId: linkId,
                 timestamp: Date.now(),
                 reference: linkData.data?.attributes?.reference_number,
@@ -195,8 +220,26 @@ export default function CashInScreen() {
                         <Text className="text-xl font-bold text-emerald-900">Cash In</Text>
                     </View>
 
+                    {/* Current Balance */}
+                    <View className="mx-6 mt-4 bg-emerald-50 p-3 rounded-lg border border-emerald-200">
+                        <Text className="text-emerald-800 font-medium">Current Balance</Text>
+                        {isLoadingBalance ? (
+                            <ActivityIndicator size="small" color="#059669" />
+                        ) : (
+                            <Text className="text-emerald-700 font-bold text-lg">₱{currentBalance.toFixed(2)}</Text>
+                        )}
+                        <Text className="text-xs text-emerald-600 mt-1">Wallet Limit: ₱{WALLET_LIMIT.toLocaleString()}</Text>
+                    </View>
+
                     {/* Form */}
                     <View className="p-6 space-y-6">
+                        {/* Error message */}
+                        {error && (
+                            <View className="bg-red-100 p-3 rounded-lg border border-red-300">
+                                <Text className="text-red-700">{error}</Text>
+                            </View>
+                        )}
+
                         {/* Amount */}
                         <View className="space-y-2">
                             <Text className="text-emerald-800 font-medium">Amount</Text>
@@ -211,6 +254,11 @@ export default function CashInScreen() {
                                 />
                             </View>
                             <Text className="text-xs text-emerald-700 mt-1">Minimum amount: ₱{PAYMONGO_MIN_AMOUNT}.00</Text>
+                            {!isLoadingBalance && (
+                                <Text className="text-xs text-emerald-700">
+                                    Maximum amount: ₱{(WALLET_LIMIT - currentBalance).toLocaleString()}
+                                </Text>
+                            )}
                         </View>
 
                         {/* Payment information */}
@@ -222,9 +270,6 @@ export default function CashInScreen() {
                             </Text>
                             <Text className="text-emerald-700 text-sm">• Return to the app after completing your payment</Text>
                         </View>
-
-                        {/* Error message */}
-                        {error && <Text className="text-red-500 text-center">{error}</Text>}
 
                         {/* Cash In Button */}
                         <TouchableOpacity

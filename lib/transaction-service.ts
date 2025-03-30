@@ -484,16 +484,12 @@ export async function getAllUserTransactions(): Promise<Transaction[]> {
 }
 
 export function generateTransactionId(): string {
-  return (
-    "txn_" +
-    Math.random()
-      .toString(36)
-      .substring(2, 15) +
-    Math.random()
-      .toString(36)
-      .substring(2, 15)
-  );
+  // Generate a 10-digit numeric transaction ID
+  return Math.floor(1000000000 + Math.random() * 9000000000).toString();
 }
+
+// Add wallet limit constant
+export const WALLET_LIMIT = 10000; // 10,000 pesos
 
 export async function calculateUserBalance(userId: string): Promise<number> {
   try {
@@ -780,6 +776,7 @@ export async function createSendTransaction(
   }
 }
 
+// Update the createReceiveTransaction function to check wallet limit
 export async function createReceiveTransaction(
   userId: string,
   amount: number,
@@ -799,6 +796,14 @@ export async function createReceiveTransaction(
     }
 
     const currentBalance = await calculateUserBalance(userId);
+
+    // Check if transaction would exceed wallet limit
+    if (currentBalance + amount > WALLET_LIMIT) {
+      throw new Error(
+        `Transaction would exceed wallet limit of ₱${WALLET_LIMIT.toLocaleString()}`
+      );
+    }
+
     const newBalance = currentBalance + amount;
 
     const receiveTransaction: Transaction = {
@@ -961,5 +966,64 @@ export async function syncUserIdsWithAuth(): Promise<void> {
     }
   } catch (error) {
     // Silent error handling
+  }
+}
+
+
+export async function updateTransactionStatus(
+  transactionId: string,
+  status: "PENDING" | "COMPLETED" | "FAILED"
+): Promise<void> {
+  try {
+    const databaseId = config.databaseId;
+    const collectionId = getTransactionsCollectionId();
+
+    if (!databaseId || !collectionId) {
+      throw new Error("Appwrite configuration missing");
+    }
+
+    // Find the transaction document by transactionId
+    const response = await databases.listDocuments(databaseId, collectionId, [
+      Query.equal("transactionId", transactionId),
+      Query.limit(1),
+    ]);
+
+    if (response.documents.length === 0) {
+      throw new Error(`Transaction with ID ${transactionId} not found`);
+    }
+
+    const transactionDoc = response.documents[0];
+
+    // Update the transaction status
+    await databases.updateDocument(databaseId, collectionId, transactionDoc.$id, {
+      status: status,
+    });
+
+    // If the transaction is completed and it's a CASH_IN transaction,
+    // we might want to create a notification
+    if (status === "COMPLETED") {
+      try {
+        const transaction: Transaction = {
+          id: transactionId,
+          type: transactionDoc.type,
+          amount: Number.parseFloat(transactionDoc.amount),
+          description: transactionDoc.description,
+          paymentId: transactionDoc.paymentId,
+          timestamp: Number.parseInt(transactionDoc.timestamp, 10),
+          reference: transactionDoc.reference,
+          userId: transactionDoc.userId,
+          balance: transactionDoc.balance ? Number.parseFloat(transactionDoc.balance) : undefined,
+          recipientId: transactionDoc.recipientId || undefined,
+        };
+
+        await createTransactionNotification(transaction);
+      } catch (notificationError) {
+        console.error("Error creating transaction notification:", notificationError);
+        // Continue even if notification creation fails
+      }
+    }
+  } catch (error) {
+    console.error("Error updating transaction status:", error);
+    throw error;
   }
 }

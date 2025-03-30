@@ -65,17 +65,17 @@ export default function PinEntryScreen() {
     // Function to handle role-based navigation
     const navigateBasedOnRole = (role: string) => {
         console.log(`Navigating based on role: ${role}`)
-    
+
         // Use type-safe navigation based on role
         if (role === "conductor") {
-          router.replace("/conductor")
+            router.replace("/conductor")
         } else if (role === "inspector") {
-          router.replace("/inspector")
+            router.replace("/inspector")
         } else {
-          // Default to passenger role
-          router.replace("/")
+            // Default to passenger role
+            router.replace("/")
         }
-      }
+    }
 
     const verifyPinAndProceed = async (enteredPin: string) => {
         try {
@@ -139,6 +139,10 @@ export default function PinEntryScreen() {
         )
     }
 
+    const handleForgotPin = () => {
+        router.push("/forgot-pin")
+    }
+
     if (loading) {
         return (
             <View className="flex-1 bg-green-400 justify-center items-center">
@@ -172,6 +176,13 @@ export default function PinEntryScreen() {
                     <View className="mt-4">
                         <ActivityIndicator size="small" color="white" />
                     </View>
+                )}
+
+                {/* Forgot PIN Link */}
+                {hasPin && (
+                    <TouchableOpacity onPress={handleForgotPin} className="mt-4">
+                        <Text className="text-white">Forgot PIN?</Text>
+                    </TouchableOpacity>
                 )}
             </View>
 
@@ -212,3 +223,4 @@ export default function PinEntryScreen() {
         </View>
     )
 }
+

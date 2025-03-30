@@ -16,7 +16,7 @@ import {
 } from "react-native"
 import { useRouter } from "expo-router"
 import { FontAwesome, Ionicons } from "@expo/vector-icons"
-import { createSendTransaction, getCurrentUserBalance } from "../lib/transaction-service"
+import { createSendTransaction, getCurrentUserBalance, WALLET_LIMIT } from "../lib/transaction-service"
 
 export default function SendMoneyScreen() {
     const router = useRouter()
@@ -140,6 +140,7 @@ export default function SendMoneyScreen() {
                         ) : (
                             <Text className="text-emerald-700 font-bold text-lg">₱{currentBalance.toFixed(2)}</Text>
                         )}
+                        <Text className="text-xs text-emerald-600 mt-1">Wallet Limit: ₱{WALLET_LIMIT.toLocaleString()}</Text>
                     </View>
 
                     {/* Form */}

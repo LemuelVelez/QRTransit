@@ -283,7 +283,7 @@ export default function ConductorScreen() {
 
     try {
       if (paymentMethod === "QR") {
-        // Create payment request in Appwrite
+        // Create payment request in Appwrite with busNumber
         const request = await createPaymentRequest(
           conductorId,
           conductorName,
@@ -292,6 +292,7 @@ export default function ConductorScreen() {
           fare,
           from || "Unknown",
           to || "Unknown",
+          routeInfo?.busNumber, // Include bus number in payment request
         )
 
         // Store the current payment request
@@ -313,6 +314,7 @@ export default function ConductorScreen() {
           passengerPhoto: capturedImage || undefined,
           passengerType: passengerType,
           kilometer: kilometer,
+          busNumber: routeInfo?.busNumber, // Include bus number in trip
         }
 
         const savedTripId = await saveTrip(trip)
@@ -333,6 +335,7 @@ export default function ConductorScreen() {
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
             paymentMethod: "Cash",
+            busNumber: routeInfo?.busNumber, // Include bus number in receipt params
           },
         })
       }
@@ -374,6 +377,7 @@ export default function ConductorScreen() {
           conductorId: conductorId,
           passengerType: passengerType,
           kilometer: kilometer,
+          busNumber: request.busNumber || routeInfo?.busNumber, // Include bus number from request or route info
         }
 
         const savedTripId = await saveTrip(trip)
@@ -398,6 +402,7 @@ export default function ConductorScreen() {
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
             paymentMethod: "QR",
+            busNumber: request.busNumber || routeInfo?.busNumber, // Include bus number in receipt params
           },
         })
       } else {

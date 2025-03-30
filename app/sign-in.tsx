@@ -20,6 +20,7 @@ import { loginUser, getCurrentSession } from "@/lib/appwrite" // Import the logi
 type RootStackParamList = {
   register: undefined
   pin: undefined
+  "forgot-password": undefined
 }
 
 const SignIn = () => {
@@ -150,6 +151,11 @@ const SignIn = () => {
           </TouchableOpacity>
         </View>
 
+        {/* Forgot Password Link */}
+        <TouchableOpacity className="mb-4" onPress={() => navigation.navigate("forgot-password")} disabled={isLoading}>
+          <Text className="text-white text-right">Forgot Password?</Text>
+        </TouchableOpacity>
+
         {/* Buttons */}
         <TouchableOpacity
           className={`w-full ${isLoading ? "bg-blue-400" : "bg-blue-600"} py-3 rounded-lg hover:bg-blue-700 transition-colors mb-4`}
@@ -178,3 +184,4 @@ const SignIn = () => {
 }
 
 export default SignIn
+

@@ -17,6 +17,7 @@ export interface Trip {
   totalTrips?: string;
   totalPassengers?: string;
   totalRevenue?: string;
+  busNumber?: string; // Add bus number field
 }
 
 // Get the collection ID for trips
@@ -104,7 +105,7 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
   }
 }
 
-// Save a new trip
+// Update the saveTrip function to include busNumber
 export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
   try {
     const databaseId = config.databaseId;
@@ -128,6 +129,7 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
       passengerType: trip.passengerType || "Regular",
       kilometer: trip.kilometer || "0",
       totalTrips: "1", // Add the required field with a default value
+      busNumber: trip.busNumber || "", // Include bus number
     };
 
     const result = await databases.createDocument(

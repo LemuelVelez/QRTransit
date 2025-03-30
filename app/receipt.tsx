@@ -33,15 +33,13 @@ export default function ReceiptScreen() {
 
   useEffect(() => {
     async function loadReceiptData() {
-      try {
-        setLoading(true)
+      if (receiptId) {
+        try {
+          setLoading(true)
+          const details = await getTripDetails(receiptId)
 
-        if (receiptId) {
-          // Try to get trip details from the database
-          const tripDetails = await getTripDetails(receiptId)
-
-          if (tripDetails) {
-            setReceiptData(tripDetails)
+          if (details) {
+            setReceiptData(details)
           } else {
             // If no details found in the database, use the params
             setReceiptData({
@@ -50,41 +48,40 @@ export default function ReceiptScreen() {
               fare: params.fare,
               from: params.from,
               to: params.to,
-              timestamp: params.timestamp,
+              timestamp: Number(params.timestamp),
               paymentMethod: params.paymentMethod,
+              transactionId: params.transactionId,
+              passengerPhoto: params.passengerPhoto,
+              passengerType: params.passengerType,
+              kilometer: params.kilometer,
+              busNumber: params.busNumber, // Include bus number
             })
           }
-        } else {
-          // Use params directly if no receiptId
+        } catch (error) {
+          console.error("Error loading trip details:", error)
+          // Use params as fallback
           setReceiptData({
-            id: params.receiptId,
+            id: receiptId,
             passengerName: params.passengerName,
             fare: params.fare,
             from: params.from,
             to: params.to,
-            timestamp: params.timestamp,
+            timestamp: Number(params.timestamp),
             paymentMethod: params.paymentMethod,
+            transactionId: params.transactionId,
+            passengerPhoto: params.passengerPhoto,
+            passengerType: params.passengerType,
+            kilometer: params.kilometer,
+            busNumber: params.busNumber, // Include bus number
           })
+        } finally {
+          setLoading(false)
         }
-      } catch (error) {
-        console.error("Error loading receipt data:", error)
-        // Fallback to params
-        setReceiptData({
-          id: params.receiptId,
-          passengerName: params.passengerName,
-          fare: params.fare,
-          from: params.from,
-          to: params.to,
-          timestamp: params.timestamp,
-          paymentMethod: params.paymentMethod,
-        })
-      } finally {
-        setLoading(false)
       }
     }
 
     loadReceiptData()
-  }, [receiptId])
+  }, [receiptId]) // Only depend on receiptId instead of the entire params object
 
   // Capture receipt as image
   const captureReceipt = async (format: "jpg" | "png" = "jpg") => {
@@ -285,6 +282,14 @@ export default function ReceiptScreen() {
           <Text style={styles.infoLabel}>To:</Text>
           <Text style={styles.infoValue}>{receiptData.to}</Text>
         </View>
+
+        {/* Display Bus Number */}
+        {receiptData.busNumber && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Bus Number:</Text>
+            <Text style={styles.infoValue}>#{receiptData.busNumber}</Text>
+          </View>
+        )}
 
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Payment Method:</Text>
