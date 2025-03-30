@@ -128,11 +128,17 @@ export default function ConductorScreen() {
           const user = await getCurrentUser()
           if (user) {
             setConductorId(user.$id || "")
-            setConductorName(
-              user.firstname && user.lastname
-                ? `${user.firstname} ${user.lastname}`
-                : user.username || user.email || "Conductor",
-            )
+
+            // Set conductor name from firstname and lastname
+            if (user.firstname && user.lastname) {
+              setConductorName(`${user.firstname} ${user.lastname}`)
+            } else if (user.username) {
+              setConductorName(user.username)
+            } else if (user.email) {
+              setConductorName(user.email)
+            } else {
+              setConductorName("Conductor")
+            }
 
             // Load active route
             const hasActiveRoute = await loadActiveRoute(user.$id || "")
@@ -388,7 +394,7 @@ export default function ConductorScreen() {
             passengerName: passengerData.name,
             fare: request.fare,
             from: request.from,
-            to: request.to,
+            to: to,
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
             paymentMethod: "QR",

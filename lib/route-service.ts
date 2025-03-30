@@ -9,17 +9,19 @@ export interface RouteInfo {
   timestamp: number;
   active?: boolean;
   endTimestamp?: number;
+  conductorName?: string; // Added conductorName field
 }
 
 // Get the collection ID for routes
 const getRoutesCollectionId = () => {
-  return process.env.EXPO_PUBLIC_APPWRITE_ROUTES_COLLECTION_ID || "routes";
+  return process.env.EXPO_PUBLIC_APPWRITE_ROUTES_COLLECTION_ID || "";
 };
 
 // Save route information
 export async function saveRouteInfo(
   conductorId: string,
-  routeInfo: RouteInfo
+  routeInfo: RouteInfo,
+  conductorName?: string // Added conductorName parameter
 ): Promise<string> {
   try {
     const databaseId = config.databaseId;
@@ -40,6 +42,7 @@ export async function saveRouteInfo(
         busNumber: routeInfo.busNumber,
         timestamp: routeInfo.timestamp.toString(),
         active: routeInfo.active === true, // Ensure boolean value
+        conductorName: conductorName || "", // Include conductorName
       }
     );
 
@@ -81,6 +84,7 @@ export async function getActiveRoute(
       busNumber: route.busNumber,
       timestamp: Number.parseInt(route.timestamp),
       active: route.active === true, // Ensure boolean value
+      conductorName: route.conductorName || "", // Include conductorName
     };
   } catch (error) {
     console.error("Error getting active route:", error);
@@ -136,6 +140,7 @@ export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
       endTimestamp: route.endTimestamp
         ? Number.parseInt(route.endTimestamp)
         : undefined,
+      conductorName: route.conductorName || "", // Include conductorName
     }));
   } catch (error) {
     console.error("Error getting all routes:", error);
@@ -162,6 +167,8 @@ export async function updateRoute(
     if (updates.to !== undefined) updateData.to = updates.to;
     if (updates.busNumber !== undefined)
       updateData.busNumber = updates.busNumber;
+    if (updates.conductorName !== undefined)
+      updateData.conductorName = updates.conductorName;
 
     // Explicitly handle the active field as a boolean
     if (updates.active !== undefined) {

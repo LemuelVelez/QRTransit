@@ -138,7 +138,7 @@ export default function ModifiedFareCalculator({
         </View>
         <View className="relative">
           <TextInput className="w-1/2 p-4 bg-white rounded-md" value={fare} editable={false} placeholder="₱0.00" />
-          <Text className="absolute bottom-[-96] left-4 right-4 text-center text-xl text-white opacity-90 font-semibold">
+          <Text className="absolute top-28 left-4 right-4 text-center text-xl text-white opacity-90 font-semibold">
             Seamless Journey, One Scan Away
           </Text>
         </View>

@@ -212,10 +212,7 @@ export default function ConductorProfileScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             className="flex-row items-center py-3 border-b border-gray-100"
-            onPress={() => {
-              const router = useRouter()
-              router.push("/conductor/manage-discounts")
-            }}
+            onPress={() => router.push("/conductor/manage-discounts")}
           >
             <Ionicons name="cash-outline" size={20} color="#059669" className="mr-4" />
             <Text className="text-gray-700">Manage Discounts</Text>
