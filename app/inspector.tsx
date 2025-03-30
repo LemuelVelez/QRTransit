@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ export default function InspectorScreen() {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<BusInfo[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [inspectorId, setInspectorId] = useState("")
   const [inspectorName, setInspectorName] = useState("Inspector")
   const [recentSearches, setRecentSearches] = useState<string[]>([])
@@ -80,6 +81,9 @@ export default function InspectorScreen() {
   }, [])
 
   const handleSearch = async () => {
+    // Reset any previous search errors
+    setSearchError(null)
+
     if (!searchQuery.trim()) {
       Alert.alert("Error", "Please enter a bus number")
       return
@@ -103,19 +107,22 @@ export default function InspectorScreen() {
       }
     } catch (error) {
       console.error("Search error:", error)
+      setSearchError("Failed to search for buses. Please try again.")
       Alert.alert("Error", "Failed to search for buses")
     } finally {
       setIsSearching(false)
     }
   }
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true)
+    setSearchError(null)
+
     if (searchQuery.trim()) {
       await handleSearch()
     }
     setRefreshing(false)
-  }
+  }, [searchQuery])
 
   const handleViewBusDetails = (bus: BusInfo) => {
     router.push({
@@ -148,6 +155,13 @@ export default function InspectorScreen() {
     setTimeout(() => {
       handleSearch()
     }, 100)
+  }
+
+  const handleClearSearch = () => {
+    setSearchQuery("")
+    setSearchResults([])
+    setShowEmptyState(true)
+    setSearchError(null)
   }
 
   if (loading) {
@@ -220,6 +234,13 @@ export default function InspectorScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Search Error Message */}
+            {searchError && (
+              <View className="mt-2 bg-red-50 p-2 rounded-lg">
+                <Text className="text-red-600 text-sm">{searchError}</Text>
+              </View>
+            )}
+
             {/* Recent Searches */}
             {recentSearches.length > 0 && showEmptyState && (
               <View className="mt-4">
@@ -291,10 +312,7 @@ export default function InspectorScreen() {
                     : "Search for a bus to begin inspection"}
                 </Text>
                 {searchQuery.trim() && !showEmptyState && (
-                  <TouchableOpacity
-                    className="mt-4 bg-blue-50 px-4 py-2 rounded-lg"
-                    onPress={() => setShowEmptyState(true)}
-                  >
+                  <TouchableOpacity className="mt-4 bg-blue-50 px-4 py-2 rounded-lg" onPress={handleClearSearch}>
                     <Text className="text-blue-600">Clear search</Text>
                   </TouchableOpacity>
                 )}

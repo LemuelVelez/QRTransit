@@ -19,6 +19,19 @@ import { getInspectionHistory } from "@/lib/inspector-service"
 import type { InspectionRecord } from "@/lib/types"
 import DateRangePicker from "@/components/date-range-picker"
 
+// Helper function to safely parse timestamps
+const safeParseTimestamp = (timestamp: string | number): number => {
+  if (typeof timestamp === "number") {
+    return timestamp
+  }
+
+  try {
+    return Number.parseInt(timestamp)
+  } catch (error) {
+    return Date.now() // Fallback to current time if parsing fails
+  }
+}
+
 export default function InspectionHistoryScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -96,9 +109,14 @@ export default function InspectionHistoryScreen() {
     if (!startDate || !endDate) return
 
     const filtered = inspections.filter((inspection) => {
-      // Convert string timestamp to number before creating Date object
-      const inspectionDate = new Date(Number.parseInt(inspection.timestamp))
-      return inspectionDate >= startDate && inspectionDate <= endDate
+      // Safely parse the timestamp
+      const inspectionDate = new Date(safeParseTimestamp(inspection.timestamp))
+
+      // Set end date to end of day for inclusive comparison
+      const endOfDay = new Date(endDate)
+      endOfDay.setHours(23, 59, 59, 999)
+
+      return inspectionDate >= startDate && inspectionDate <= endOfDay
     })
 
     setFilteredInspections(filtered)
@@ -117,9 +135,14 @@ export default function InspectionHistoryScreen() {
   }
 
   const formatDate = (timestamp: string) => {
-    // Convert string timestamp to number before creating Date object
-    const date = new Date(Number.parseInt(timestamp))
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    // Safely parse the timestamp
+    const date = new Date(safeParseTimestamp(timestamp))
+
+    try {
+      return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    } catch (error) {
+      return "Invalid Date"
+    }
   }
 
   if (loading) {

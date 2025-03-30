@@ -12,6 +12,7 @@ interface InspectionClearanceModalProps {
     isLoading: boolean
     routeFrom: string
     routeTo: string
+    routeStops?: string[] // Added routeStops prop
 }
 
 export default function InspectionClearanceModal({
@@ -21,14 +22,21 @@ export default function InspectionClearanceModal({
     isLoading,
     routeFrom,
     routeTo,
+    routeStops = [],
 }: InspectionClearanceModalProps) {
     const [inspectionFrom, setInspectionFrom] = useState(routeFrom)
     const [inspectionTo, setInspectionTo] = useState(routeTo)
+    const [validationError, setValidationError] = useState<string | null>(null)
     const scaleAnim = useRef(new Animated.Value(0.9)).current
     const opacityAnim = useRef(new Animated.Value(0)).current
 
+    // Reset form when modal opens
     useEffect(() => {
         if (visible) {
+            setInspectionFrom(routeFrom)
+            setInspectionTo(routeTo)
+            setValidationError(null)
+
             Animated.parallel([
                 Animated.timing(scaleAnim, {
                     toValue: 1,
@@ -46,13 +54,39 @@ export default function InspectionClearanceModal({
             scaleAnim.setValue(0.9)
             opacityAnim.setValue(0)
         }
-    }, [visible])
+    }, [visible, routeFrom, routeTo])
+
+    const validateLocations = (): boolean => {
+        setValidationError(null)
+
+        if (!inspectionFrom || !inspectionTo) {
+            setValidationError("Both inspection locations are required")
+            return false
+        }
+
+        // If routeStops are provided, validate that locations are in the route
+        if (routeStops.length > 0) {
+            const fromIndex = routeStops.indexOf(inspectionFrom)
+            const toIndex = routeStops.indexOf(inspectionTo)
+
+            if (fromIndex === -1 || toIndex === -1) {
+                setValidationError("Inspection locations must be valid stops on the route")
+                return false
+            }
+
+            if (fromIndex > toIndex) {
+                setValidationError("Inspection 'From' must come before 'To' on the route")
+                return false
+            }
+        }
+
+        return true
+    }
 
     const handleSubmit = () => {
-        if (!inspectionFrom || !inspectionTo) {
-            return
+        if (validateLocations()) {
+            onSubmit(inspectionFrom, inspectionTo)
         }
-        onSubmit(inspectionFrom, inspectionTo)
     }
 
     return (
@@ -82,6 +116,21 @@ export default function InspectionClearanceModal({
                             Please specify the "from" and "to" locations of your inspection before clearing this bus.
                         </Text>
                     </View>
+
+                    {/* Show validation error if any */}
+                    {validationError && (
+                        <View className="bg-red-50 rounded-lg p-3 mb-4">
+                            <Text className="text-red-600">{validationError}</Text>
+                        </View>
+                    )}
+
+                    {/* Show available stops if provided */}
+                    {routeStops.length > 0 && (
+                        <View className="bg-blue-50 rounded-lg p-3 mb-4">
+                            <Text className="text-blue-700 font-medium mb-1">Available stops on this route:</Text>
+                            <Text className="text-blue-600">{routeStops.join(" → ")}</Text>
+                        </View>
+                    )}
 
                     <InspectorLocationInput
                         label="Inspection From"

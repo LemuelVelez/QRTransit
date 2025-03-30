@@ -20,6 +20,14 @@ import type { PassengerInfo } from "@/lib/types"
 import LocationFilterModal from "@/components/location-filter-modal"
 import InspectionClearanceModal from "@/components/inspection-clearance-modal"
 
+// Common route stops - this could be fetched from a database in a real app
+const COMMON_ROUTE_STOPS = {
+  Pagadian: ["Pagadian", "Buug", "Ipil"],
+  Buug: ["Buug", "Pagadian", "Ipil"],
+  Ipil: ["Ipil", "Buug", "Pagadian"],
+  // Add more routes as needed
+}
+
 export default function BusDetailsScreen() {
   const params = useLocalSearchParams()
   const router = useRouter()
@@ -32,6 +40,7 @@ export default function BusDetailsScreen() {
   const [activeFilter, setActiveFilter] = useState<string | null>(null)
   const [inspectorId, setInspectorId] = useState("")
   const [isClearing, setIsClearing] = useState(false)
+  const [routeStops, setRouteStops] = useState<string[]>([])
   const fadeAnim = useRef(new Animated.Value(0)).current
   const slideAnim = useRef(new Animated.Value(50)).current
 
@@ -58,6 +67,9 @@ export default function BusDetailsScreen() {
         } catch (userError) {
           console.error("Error loading inspector data:", userError)
         }
+
+        // Set route stops
+        setRouteStops(getRouteLocations(from as string, to as string))
 
         await loadPassengers()
 
@@ -141,28 +153,51 @@ export default function BusDetailsScreen() {
 
   // Helper function to get route locations as an array
   const getRouteLocations = (fromLocation: string, toLocation: string): string[] => {
-    // This is a simplified implementation
-    // In a real app, you would fetch the actual route with all stops
-    // For now, we'll use a hardcoded array with the from and to locations
-    // and any known intermediate stops
+    // Check if we have a predefined route
+    for (const [key, stops] of Object.entries(COMMON_ROUTE_STOPS)) {
+      if (stops.includes(fromLocation) && stops.includes(toLocation)) {
+        // Get the slice of the route between from and to (inclusive)
+        const startIndex = stops.indexOf(fromLocation)
+        const endIndex = stops.indexOf(toLocation)
 
-    // Example route: Pagadian -> Buug -> Ipil
-    const knownStops = ["Pagadian", "Buug", "Ipil"]
-
-    // Find the start and end indices in the known stops
-    const startIndex = knownStops.indexOf(fromLocation as string)
-    const endIndex = knownStops.indexOf(toLocation as string)
-
-    if (startIndex === -1 || endIndex === -1) {
-      // If locations not found in known stops, return just the from and to
-      return [fromLocation as string, toLocation as string]
+        if (startIndex !== -1 && endIndex !== -1) {
+          // If from comes before to in the array
+          if (startIndex < endIndex) {
+            return stops.slice(startIndex, endIndex + 1)
+          }
+          // If to comes before from in the array (reverse direction)
+          else {
+            return stops.slice(endIndex, startIndex + 1).reverse()
+          }
+        }
+      }
     }
 
-    // Return the slice of the route between start and end (inclusive)
-    return knownStops.slice(startIndex, endIndex + 1)
+    // If no predefined route is found, create a simple route with just from and to
+    return [fromLocation, toLocation]
+  }
+
+  const validateInspectionLocations = (inspectionFrom: string, inspectionTo: string): boolean => {
+    const routeArray = getRouteLocations(from as string, to as string)
+
+    // Check if both locations are in the route
+    const fromIndex = routeArray.indexOf(inspectionFrom)
+    const toIndex = routeArray.indexOf(inspectionTo)
+
+    // Both locations must be in the route and in the correct order
+    return fromIndex !== -1 && toIndex !== -1 && fromIndex <= toIndex
   }
 
   const handleClearBus = async (inspectionFrom: string, inspectionTo: string) => {
+    // Validate inspection locations
+    if (!validateInspectionLocations(inspectionFrom, inspectionTo)) {
+      Alert.alert(
+        "Invalid Inspection Route",
+        "The inspection locations must be valid stops on the bus route and in the correct order.",
+      )
+      return
+    }
+
     try {
       setIsClearing(true)
 
@@ -365,7 +400,7 @@ export default function BusDetailsScreen() {
         visible={showFilterModal}
         onClose={() => setShowFilterModal(false)}
         onSelectLocation={handleFilter}
-        locations={getRouteLocations(from as string, to as string)}
+        locations={routeStops}
         currentFilter={activeFilter}
       />
 
@@ -377,6 +412,7 @@ export default function BusDetailsScreen() {
         isLoading={isClearing}
         routeFrom={from as string}
         routeTo={to as string}
+        routeStops={routeStops}
       />
     </View>
   )

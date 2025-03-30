@@ -1,5 +1,6 @@
 import { ID, Query } from "react-native-appwrite"
 import { databases, config } from "./appwrite"
+import { getConductorName } from "./conductor-service" // Import the getConductorName function
 import type { BusInfo, PassengerInfo, InspectionRecord } from "./types"
 
 // Get the collection IDs
@@ -16,15 +17,24 @@ const getInspectionsCollectionId = () => {
 }
 
 // Helper function to get a safe conductor name
-const getSafeConductorName = (doc: any): string => {
+const getSafeConductorName = async (doc: any): Promise<string> => {
   // Check if conductorName exists and is not empty
   if (doc.conductorName && doc.conductorName.trim() !== "") {
     return doc.conductorName
   }
 
-  // Check if conductorId exists
+  // If conductorId exists, try to get the name from the users collection
   if (doc.conductorId) {
-    // Return a partial ID if available
+    try {
+      const name = await getConductorName(doc.conductorId)
+      if (name && name !== "Unknown Conductor") {
+        return name
+      }
+    } catch (error) {
+      console.error("Error getting conductor name:", error)
+    }
+
+    // Return a partial ID if available as fallback
     try {
       return `Conductor (ID: ${doc.conductorId.substring(0, 8)}...)`
     } catch (e) {
@@ -37,6 +47,19 @@ const getSafeConductorName = (doc: any): string => {
   return "Unknown Conductor"
 }
 
+// Helper function to safely parse timestamps
+const safeParseTimestamp = (timestamp: string | number): number => {
+  if (typeof timestamp === "number") {
+    return timestamp
+  }
+
+  try {
+    return Number.parseInt(timestamp)
+  } catch (error) {
+    return Date.now() // Fallback to current time if parsing fails
+  }
+}
+
 // Search for a bus by number
 export async function searchBusByNumber(busNumber: string): Promise<BusInfo[]> {
   try {
@@ -47,21 +70,32 @@ export async function searchBusByNumber(busNumber: string): Promise<BusInfo[]> {
       throw new Error("Appwrite configuration missing")
     }
 
+    // Clean the bus number input (trim whitespace)
+    const cleanBusNumber = busNumber.trim()
+
     const response = await databases.listDocuments(databaseId, collectionId, [
-      Query.equal("busNumber", busNumber),
+      Query.equal("busNumber", cleanBusNumber),
       Query.orderDesc("timestamp"),
     ])
 
-    return response.documents.map((doc) => ({
-      id: doc.$id,
-      busNumber: doc.busNumber,
-      conductorId: doc.conductorId || "",
-      conductorName: getSafeConductorName(doc),
-      from: doc.from,
-      to: doc.to,
-      active: doc.active === true,
-      timestamp: doc.timestamp, // Keep as string from Appwrite
-    }))
+    // Process each document to ensure conductor names are properly set
+    const results = []
+    for (const doc of response.documents) {
+      const conductorName = await getSafeConductorName(doc)
+
+      results.push({
+        id: doc.$id,
+        busNumber: doc.busNumber,
+        conductorId: doc.conductorId || "",
+        conductorName: conductorName,
+        from: doc.from,
+        to: doc.to,
+        active: doc.active === true,
+        timestamp: doc.timestamp, // Keep as string from Appwrite
+      })
+    }
+
+    return results
   } catch (error) {
     console.error("Error searching for bus:", error)
     return []
@@ -128,13 +162,16 @@ export async function markBusAsCleared(
     // Get passenger count
     const passengers = await getBusPassengers(busId, busDetails.conductorId)
 
+    // Get the conductor name
+    const conductorName = await getSafeConductorName(busDetails)
+
     // Create inspection record - All values as strings for Appwrite
     const inspectionRecord = {
       inspectorId,
       busId,
       busNumber: busDetails.busNumber,
       conductorId: busDetails.conductorId || "",
-      conductorName: getSafeConductorName(busDetails),
+      conductorName: conductorName,
       timestamp: Date.now().toString(), // Already a string
       inspectionFrom,
       inspectionTo,
@@ -166,19 +203,27 @@ export async function getInspectionHistory(inspectorId: string): Promise<Inspect
       Query.orderDesc("timestamp"),
     ])
 
-    return response.documents.map((doc) => ({
-      id: doc.$id,
-      inspectorId: doc.inspectorId,
-      busId: doc.busId,
-      busNumber: doc.busNumber,
-      conductorId: doc.conductorId || "",
-      conductorName: getSafeConductorName(doc),
-      timestamp: doc.timestamp, // Keep as string from Appwrite
-      inspectionFrom: doc.inspectionFrom,
-      inspectionTo: doc.inspectionTo,
-      passengerCount: doc.passengerCount, // Keep as string from Appwrite
-      status: doc.status || "cleared",
-    }))
+    // Process each document to ensure conductor names are properly set
+    const results = []
+    for (const doc of response.documents) {
+      const conductorName = await getSafeConductorName(doc)
+
+      results.push({
+        id: doc.$id,
+        inspectorId: doc.inspectorId,
+        busId: doc.busId,
+        busNumber: doc.busNumber,
+        conductorId: doc.conductorId || "",
+        conductorName: conductorName,
+        timestamp: doc.timestamp, // Keep as string from Appwrite
+        inspectionFrom: doc.inspectionFrom,
+        inspectionTo: doc.inspectionTo,
+        passengerCount: doc.passengerCount, // Keep as string from Appwrite
+        status: doc.status || "cleared",
+      })
+    }
+
+    return results
   } catch (error) {
     console.error("Error getting inspection history:", error)
     return []
@@ -212,9 +257,11 @@ export async function getInspectorStats(inspectorId: string): Promise<{
 
     // Get last active timestamp - handle as string
     const lastActiveTimestamp = inspections.length > 0 ? inspections[0].timestamp : Date.now().toString()
+
     // Convert to Date for formatting, but keep original as string
-    // Fix: Convert string to number before passing to Date constructor
-    const lastActive = new Date(Number(lastActiveTimestamp)).toLocaleDateString()
+    // Safely parse the timestamp
+    const lastActiveDate = new Date(safeParseTimestamp(lastActiveTimestamp))
+    const lastActive = lastActiveDate.toLocaleDateString()
 
     return {
       totalInspections,
