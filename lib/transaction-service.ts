@@ -3,6 +3,7 @@ import { databases, config, account } from "./appwrite";
 import { getCurrentUser } from "./appwrite";
 
 export type TransactionType = "CASH_IN" | "CASH_OUT" | "SEND" | "RECEIVE";
+export type TransactionStatus = "PENDING" | "COMPLETED" | "FAILED";
 
 export interface Transaction {
   id: string;
@@ -15,6 +16,7 @@ export interface Transaction {
   userId: string;
   balance?: number;
   recipientId?: string;
+  status?: TransactionStatus;
 }
 
 export interface Notification {
@@ -339,8 +341,10 @@ async function calculateNewBalance(
       throw new Error("Appwrite configuration missing");
     }
 
+    // Only consider COMPLETED transactions for balance calculation
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
+      Query.equal("status", "COMPLETED"),
       Query.orderDesc("timestamp"),
       Query.limit(1),
     ]);
@@ -353,10 +357,16 @@ async function calculateNewBalance(
 
     let newBalance = currentBalance;
 
-    if (transaction.type === "CASH_IN" || transaction.type === "RECEIVE") {
-      newBalance += transaction.amount;
-    } else if (transaction.type === "CASH_OUT" || transaction.type === "SEND") {
-      newBalance -= transaction.amount;
+    // Only update balance for COMPLETED transactions
+    if (transaction.status === "COMPLETED") {
+      if (transaction.type === "CASH_IN" || transaction.type === "RECEIVE") {
+        newBalance += transaction.amount;
+      } else if (
+        transaction.type === "CASH_OUT" ||
+        transaction.type === "SEND"
+      ) {
+        newBalance -= transaction.amount;
+      }
     }
 
     return newBalance;
@@ -388,7 +398,35 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
       // Continue with transaction creation even if check fails
     }
 
-    const balance = await calculateNewBalance(transaction.userId, transaction);
+    // Set default status to PENDING if not provided
+    const status = transaction.status || "PENDING";
+
+    // Only calculate new balance for COMPLETED transactions
+    let balance = 0;
+    if (status === "COMPLETED") {
+      balance = await calculateNewBalance(transaction.userId, {
+        ...transaction,
+        status: "COMPLETED",
+      });
+    } else {
+      // For PENDING transactions, get the current balance without adding the new amount
+      const currentBalanceResponse = await databases.listDocuments(
+        databaseId,
+        collectionId,
+        [
+          Query.equal("userId", transaction.userId),
+          Query.equal("status", "COMPLETED"),
+          Query.orderDesc("timestamp"),
+          Query.limit(1),
+        ]
+      );
+
+      if (currentBalanceResponse.documents.length > 0) {
+        balance = Number.parseFloat(
+          currentBalanceResponse.documents[0].balance || "0"
+        );
+      }
+    }
 
     await databases.createDocument(databaseId, collectionId, ID.unique(), {
       transactionId: transaction.id,
@@ -401,6 +439,7 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
       userId: transaction.userId,
       balance: balance.toString(),
       recipientId: transaction.recipientId || "",
+      status: status,
     });
   } catch (error) {
     throw error;
@@ -443,6 +482,7 @@ export async function getTransactions(userId: string): Promise<Transaction[]> {
       userId: doc.userId,
       balance: doc.balance ? Number.parseFloat(doc.balance) : undefined,
       recipientId: doc.recipientId || undefined,
+      status: doc.status || "PENDING",
     }));
   } catch (error) {
     return [];
@@ -477,6 +517,7 @@ export async function getAllUserTransactions(): Promise<Transaction[]> {
       userId: doc.userId,
       balance: doc.balance ? Number.parseFloat(doc.balance) : undefined,
       recipientId: doc.recipientId || undefined,
+      status: doc.status || "PENDING",
     }));
   } catch (error) {
     return [];
@@ -500,8 +541,10 @@ export async function calculateUserBalance(userId: string): Promise<number> {
       throw new Error("Appwrite configuration missing");
     }
 
+    // Only consider COMPLETED transactions for balance calculation
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
+      Query.equal("status", "COMPLETED"),
       Query.orderDesc("timestamp"),
       Query.limit(1),
     ]);
@@ -535,8 +578,10 @@ export async function recalculateAllBalances(userId: string): Promise<void> {
       throw new Error("Appwrite configuration missing");
     }
 
+    // Only consider COMPLETED transactions for recalculation
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
+      Query.equal("status", "COMPLETED"),
       Query.orderAsc("timestamp"),
     ]);
 
@@ -752,6 +797,7 @@ export async function createSendTransaction(
       timestamp: timestamp,
       userId: senderAuthUserId,
       recipientId: recipientUserId,
+      status: "COMPLETED", // Send transactions are completed immediately
     };
 
     await saveTransaction(sendTransaction);
@@ -815,6 +861,7 @@ export async function createReceiveTransaction(
       userId: userId,
       reference: options?.reference || "",
       balance: newBalance,
+      status: "COMPLETED", // Receive transactions are completed immediately
     };
 
     await saveTransaction(receiveTransaction);
@@ -969,7 +1016,6 @@ export async function syncUserIdsWithAuth(): Promise<void> {
   }
 }
 
-
 export async function updateTransactionStatus(
   transactionId: string,
   status: "PENDING" | "COMPLETED" | "FAILED"
@@ -993,32 +1039,49 @@ export async function updateTransactionStatus(
     }
 
     const transactionDoc = response.documents[0];
+    const oldStatus = transactionDoc.status || "PENDING";
+
+    // If status is already set to the requested status, no need to update
+    if (oldStatus === status) {
+      return;
+    }
 
     // Update the transaction status
-    await databases.updateDocument(databaseId, collectionId, transactionDoc.$id, {
-      status: status,
-    });
+    await databases.updateDocument(
+      databaseId,
+      collectionId,
+      transactionDoc.$id,
+      {
+        status: status,
+      }
+    );
 
     // If the transaction is completed and it's a CASH_IN transaction,
-    // we might want to create a notification
+    // we need to update the balance
     if (status === "COMPLETED") {
-      try {
-        const transaction: Transaction = {
-          id: transactionId,
-          type: transactionDoc.type,
-          amount: Number.parseFloat(transactionDoc.amount),
-          description: transactionDoc.description,
-          paymentId: transactionDoc.paymentId,
-          timestamp: Number.parseInt(transactionDoc.timestamp, 10),
-          reference: transactionDoc.reference,
-          userId: transactionDoc.userId,
-          balance: transactionDoc.balance ? Number.parseFloat(transactionDoc.balance) : undefined,
-          recipientId: transactionDoc.recipientId || undefined,
-        };
+      const transaction: Transaction = {
+        id: transactionId,
+        type: transactionDoc.type,
+        amount: Number.parseFloat(transactionDoc.amount),
+        description: transactionDoc.description,
+        paymentId: transactionDoc.paymentId,
+        timestamp: Number.parseInt(transactionDoc.timestamp, 10),
+        reference: transactionDoc.reference,
+        userId: transactionDoc.userId,
+        status: "COMPLETED",
+      };
 
+      // Recalculate the balance for this user
+      await recalculateAllBalances(transaction.userId);
+
+      // Create notification for completed transaction
+      try {
         await createTransactionNotification(transaction);
       } catch (notificationError) {
-        console.error("Error creating transaction notification:", notificationError);
+        console.error(
+          "Error creating transaction notification:",
+          notificationError
+        );
         // Continue even if notification creation fails
       }
     }

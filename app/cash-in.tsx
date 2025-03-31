@@ -86,6 +86,10 @@ export default function CashInScreen() {
                 // Update transaction status to completed
                 await updateTransactionStatus(currentTransactionId, "COMPLETED")
 
+                // Refresh the balance after successful payment
+                const updatedBalance = await getCurrentUserBalance()
+                setCurrentBalance(updatedBalance)
+
                 Alert.alert("Success", "Payment completed successfully!")
                 router.back()
             } catch (error) {
@@ -179,6 +183,7 @@ export default function CashInScreen() {
                 timestamp: Date.now(),
                 reference: linkData.data?.attributes?.reference_number,
                 userId: user.$id,
+                status: "PENDING", // Explicitly mark as pending
             })
 
             // Open the checkout URL in a browser
