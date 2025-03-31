@@ -7,7 +7,7 @@ import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import DateRangePicker from "@/components/date-range-picker"
 
-// Updated transaction type to match our new model without status
+// Updated transaction type to include status
 type Transaction = {
   id: string
   date: string
@@ -15,7 +15,8 @@ type Transaction = {
   type: string
   amount: number
   reference?: string
-  balance?: number // Added balance field
+  balance?: number
+  status: "PENDING" | "COMPLETED" | "FAILED" // Added status field
 }
 
 export default function TransactionHistory() {
@@ -49,6 +50,34 @@ export default function TransactionHistory() {
         return "Receive"
       default:
         return type.replace("_", " ")
+    }
+  }
+
+  // Get status color based on transaction status
+  const getStatusColor = (status: string): string => {
+    switch (status) {
+      case "COMPLETED":
+        return "text-emerald-600"
+      case "PENDING":
+        return "text-amber-500"
+      case "FAILED":
+        return "text-red-500"
+      default:
+        return "text-gray-500"
+    }
+  }
+
+  // Get status badge background color
+  const getStatusBgColor = (status: string): string => {
+    switch (status) {
+      case "COMPLETED":
+        return "bg-emerald-100"
+      case "PENDING":
+        return "bg-amber-100"
+      case "FAILED":
+        return "bg-red-100"
+      default:
+        return "bg-gray-100"
     }
   }
 
@@ -109,6 +138,7 @@ export default function TransactionHistory() {
             transaction.type === "CASH_IN" || transaction.type === "RECEIVE" ? transaction.amount : -transaction.amount,
           reference: transaction.reference,
           balance: transaction.balance, // Include the balance
+          status: transaction.status || "PENDING", // Include the status with default value
         }
       })
 
@@ -188,7 +218,12 @@ export default function TransactionHistory() {
     >
       <View className="flex-row justify-between items-start">
         <View>
-          <Text className="font-medium">{formatTransactionType(transaction.type)}</Text>
+          <View className="flex-row items-center">
+            <Text className="font-medium">{formatTransactionType(transaction.type)}</Text>
+            <View className={`ml-2 px-2 py-0.5 rounded-full ${getStatusBgColor(transaction.status)}`}>
+              <Text className={`text-xs font-medium ${getStatusColor(transaction.status)}`}>{transaction.status}</Text>
+            </View>
+          </View>
           <Text className="text-sm text-gray-500">{transaction.time}</Text>
           {transaction.reference && <Text className="text-xs text-gray-400">Ref: {transaction.reference}</Text>}
           {transaction.balance !== undefined && (
