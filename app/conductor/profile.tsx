@@ -219,6 +219,14 @@ export default function ConductorProfileScreen() {
             <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
           </TouchableOpacity>
           <TouchableOpacity
+            className="flex-row items-center py-3 border-b border-gray-100"
+            onPress={() => router.push("/conductor/manage-remittance" as any)}
+          >
+            <Ionicons name="cash-outline" size={20} color="#059669" className="mr-4" />
+            <Text className="text-gray-700">Manage Cash Remittance</Text>
+            <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
+          </TouchableOpacity>
+          <TouchableOpacity
             className="flex-row items-center py-3"
             onPress={() => Alert.alert("Help", "Contact support at support@quickride.com")}
           >
