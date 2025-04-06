@@ -15,12 +15,14 @@ import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
 import { getRemittanceHistory, getTotalRemittedAmount, type CashRemittance } from "@/lib/cash-remittance-service"
+import { getUserStats } from "@/lib/conductor-service"
 
 export default function RemittanceHistoryScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [remittances, setRemittances] = useState<CashRemittance[]>([])
   const [totalRemitted, setTotalRemitted] = useState("0.00")
+  const [totalRevenue, setTotalRevenue] = useState("0.00")
   const [conductorId, setConductorId] = useState("")
   const router = useRouter()
 
@@ -42,6 +44,10 @@ export default function RemittanceHistoryScreen() {
           if (user) {
             setConductorId(user.$id || "")
             await loadRemittances(user.$id || "")
+
+            // Get total revenue from the same source as profile.tsx
+            const stats = await getUserStats(user.$id || "")
+            setTotalRevenue(stats.totalRevenue)
           }
         } catch (userError) {
           console.error("Error loading conductor data:", userError)
@@ -65,6 +71,10 @@ export default function RemittanceHistoryScreen() {
       // Get total remitted amount
       const total = await getTotalRemittedAmount(id)
       setTotalRemitted(total)
+
+      // Get updated total revenue
+      const stats = await getUserStats(id)
+      setTotalRevenue(stats.totalRevenue)
     } catch (error) {
       console.error("Error loading remittance history:", error)
       Alert.alert("Error", "Failed to load remittance history.")
@@ -109,9 +119,14 @@ export default function RemittanceHistoryScreen() {
         <View style={{ width: 32 }} />
       </View>
 
-      {/* Total Remitted Card */}
-      <View className="mx-4 mb-4">
-        <View className="bg-emerald-700 rounded-lg p-4">
+      {/* Revenue and Remittance Cards */}
+      <View className="mx-4 mb-4 flex-row space-x-2">
+        <View className="bg-emerald-700 rounded-lg p-4 flex-1">
+          <Text className="text-white text-sm">Total Revenue</Text>
+          <Text className="text-white text-2xl font-bold">₱{totalRevenue}</Text>
+        </View>
+
+        <View className="bg-emerald-600 rounded-lg p-4 flex-1">
           <Text className="text-white text-sm">Total Remitted</Text>
           <Text className="text-white text-2xl font-bold">₱{totalRemitted}</Text>
         </View>
@@ -140,10 +155,16 @@ export default function RemittanceHistoryScreen() {
                     className={`px-2 py-1 rounded-full ${item.status === "remitted" ? "bg-green-100" : "bg-yellow-100"}`}
                   >
                     <Text className={`text-xs ${item.status === "remitted" ? "text-green-600" : "text-yellow-600"}`}>
-                      {item.status === "remitted" ? "Verified by Admin" : "Awaiting Verification"}
+                      {item.status === "remitted" ? "Remitted" : "Awaiting Verification"}
                     </Text>
                   </View>
                 </View>
+
+                {item.revenueId && (
+                  <View className="flex-row justify-between items-center">
+                    <Text className="text-gray-500 text-xs">Revenue Cycle: {item.revenueId.substring(0, 10)}...</Text>
+                  </View>
+                )}
 
                 {item.notes && (
                   <View className="mt-2 pt-2 border-t border-gray-100">

@@ -18,6 +18,11 @@ const getUsersCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID || "";
 };
 
+// Get the collection ID for cash remittance
+const getCashRemittanceCollectionId = () => {
+  return process.env.EXPO_PUBLIC_APPWRITE_CASH_REMITTANCE_COLLECTION_ID || "";
+};
+
 // Get user statistics for the conductor profile
 export async function getUserStats(
   conductorId: string
@@ -25,8 +30,9 @@ export async function getUserStats(
   try {
     const databaseId = config.databaseId;
     const collectionId = getTripsCollectionId();
+    const remittanceCollectionId = getCashRemittanceCollectionId();
 
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId || !remittanceCollectionId) {
       throw new Error("Appwrite configuration missing");
     }
 
@@ -38,18 +44,40 @@ export async function getUserStats(
 
     const trips = response.documents;
 
+    // Get the latest remittance with status "remitted"
+    const remittanceResponse = await databases.listDocuments(
+      databaseId,
+      remittanceCollectionId,
+      [
+        Query.equal("conductorId", conductorId),
+        Query.equal("status", "remitted"),
+        Query.orderDesc("verificationTimestamp"),
+        Query.limit(1),
+      ]
+    );
+
+    // If there's a remitted remittance, use its timestamp as cutoff
+    let cutoffTimestamp = "0";
+    if (remittanceResponse.documents.length > 0) {
+      const latestRemittance = remittanceResponse.documents[0];
+      cutoffTimestamp = latestRemittance.verificationTimestamp || "0";
+    }
+
     // Calculate statistics
     let totalRevenue = 0;
     const uniqueTrips = new Set();
 
-    // Process trips
+    // Process trips - only count trips after the latest remittance
     trips.forEach((trip) => {
-      // Add trip to unique trips set (from-to combination)
-      uniqueTrips.add(`${trip.from}-${trip.to}`);
+      // Only count trips that occurred after the latest remittance
+      if (Number(trip.timestamp) > Number(cutoffTimestamp)) {
+        // Add trip to unique trips set (from-to combination)
+        uniqueTrips.add(`${trip.from}-${trip.to}`);
 
-      // Add fare to total revenue (remove ₱ symbol and convert to number)
-      const fareAmount = Number.parseFloat(trip.fare.replace("₱", "")) || 0;
-      totalRevenue += fareAmount;
+        // Add fare to total revenue (remove ₱ symbol and convert to number)
+        const fareAmount = Number.parseFloat(trip.fare.replace("₱", "")) || 0;
+        totalRevenue += fareAmount;
+      }
     });
 
     // Get last active timestamp

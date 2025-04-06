@@ -102,37 +102,44 @@ export async function searchBusByNumber(busNumber: string): Promise<BusInfo[]> {
   }
 }
 
-// Get passengers for a specific bus
+// Get passengers for a specific bus - FIXED to properly fetch passengers
 export async function getBusPassengers(busId: string, conductorId: string): Promise<PassengerInfo[]> {
   try {
     const databaseId = config.databaseId
     const collectionId = getTripsCollectionId()
+    const routesCollectionId = getRoutesCollectionId()
 
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing")
     }
 
     // Get the bus details first to get the route information
-    const busDetails = await databases.getDocument(databaseId, getRoutesCollectionId(), busId)
+    const busDetails = await databases.getDocument(databaseId, routesCollectionId, busId)
 
-    // Get all trips for this conductor on this bus route
+    if (!busDetails) {
+      throw new Error("Bus details not found")
+    }
+
+    // Key fix: Get all trips for this conductor with the bus number
+    // This ensures we get all passengers associated with this bus
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
-      Query.equal("from", busDetails.from),
-      Query.equal("to", busDetails.to),
+      Query.equal("busNumber", busDetails.busNumber),
       Query.orderDesc("timestamp"),
-      // Limit to recent trips (e.g., last 24 hours)
-      Query.greaterThan("timestamp", (Date.now() - 24 * 60 * 60 * 1000).toString()),
+      // Get trips from last 48 hours to ensure we have current passengers
+      Query.greaterThan("timestamp", (Date.now() - 48 * 60 * 60 * 1000).toString()),
     ])
 
+    // Map the documents to PassengerInfo objects
     return response.documents.map((doc) => ({
       id: doc.$id,
       name: doc.passengerName || "Unknown Passenger",
       fare: doc.fare || "₱0.00",
       from: doc.from || "Unknown",
       to: doc.to || "Unknown",
-      timestamp: doc.timestamp || Date.now().toString(), // Keep as string from Appwrite
+      timestamp: doc.timestamp || Date.now().toString(),
       paymentMethod: doc.paymentMethod || "QR",
+      passengerType: doc.passengerType || "Regular",
     }))
   } catch (error) {
     console.error("Error getting bus passengers:", error)
