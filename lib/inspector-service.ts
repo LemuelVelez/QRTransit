@@ -140,6 +140,7 @@ export async function getBusPassengers(busId: string, conductorId: string): Prom
       timestamp: doc.timestamp || Date.now().toString(),
       paymentMethod: doc.paymentMethod || "QR",
       passengerType: doc.passengerType || "Regular",
+      passengerPhoto: doc.passengerPhoto || "",
     }))
   } catch (error) {
     console.error("Error getting bus passengers:", error)

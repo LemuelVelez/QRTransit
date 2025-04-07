@@ -11,6 +11,7 @@ import {
   Alert,
   RefreshControl,
   Animated,
+  Image,
 } from "react-native"
 import { useLocalSearchParams, useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
@@ -357,33 +358,64 @@ export default function BusDetailsScreen() {
                 className="bg-white rounded-xl p-4 mb-3 border border-gray-100 shadow-sm elevation-1"
                 accessibilityLabel={`Passenger ${passenger.name} information`}
               >
-                <View className="flex-row justify-between mb-2">
-                  <Text className="font-bold text-gray-800 text-base flex-1 mr-2">{passenger.name}</Text>
-                  <Text className="text-blue-600 font-medium">{passenger.fare}</Text>
-                </View>
+                <View className="flex-row">
+                  {/* Passenger Photo */}
+                  {passenger.passengerPhoto ? (
+                    <View className="mr-3">
+                      <Image
+                        source={{ uri: passenger.passengerPhoto }}
+                        className="w-16 h-16 rounded-lg"
+                        style={{ borderWidth: 1, borderColor: "#e5e7eb" }}
+                        accessibilityLabel={`Photo of ${passenger.name}`}
+                      />
+                      {passenger.passengerType && (
+                        <View className="absolute bottom-0 right-0 bg-blue-500 px-1.5 py-0.5 rounded-bl-lg rounded-tr-lg">
+                          <Text className="text-white text-xs font-medium">{passenger.passengerType}</Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View className="mr-3 w-16 h-16 rounded-lg bg-gray-100 items-center justify-center">
+                      <Ionicons name="person" size={24} color="#9ca3af" />
+                      {passenger.passengerType && (
+                        <View className="absolute bottom-0 right-0 bg-blue-500 px-1.5 py-0.5 rounded-bl-lg rounded-tr-lg">
+                          <Text className="text-white text-xs font-medium">{passenger.passengerType}</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
 
-                {/* From location - redesigned to handle long text */}
-                <View className="mb-1.5">
-                  <Text className="text-gray-600 mb-0.5">From:</Text>
-                  <View className="flex-row items-center">
-                    <Ionicons name="location-outline" size={14} color="#3b82f6" className="mr-1" />
-                    <Text className="text-gray-800 flex-1">{passenger.from}</Text>
-                  </View>
-                </View>
+                  {/* Passenger Details */}
+                  <View className="flex-1">
+                    <View className="flex-row justify-between mb-2">
+                      <Text className="font-bold text-gray-800 text-base flex-1 mr-2">{passenger.name}</Text>
+                      <Text className="text-blue-600 font-medium">{passenger.fare}</Text>
+                    </View>
 
-                {/* To location - redesigned to handle long text */}
-                <View>
-                  <Text className="text-gray-600 mb-0.5">To:</Text>
-                  <View className="flex-row items-center">
-                    <Ionicons name="flag-outline" size={14} color="#3b82f6" className="mr-1" />
-                    <Text className="text-gray-800 flex-1">{passenger.to}</Text>
-                  </View>
-                </View>
+                    {/* From location */}
+                    <View className="mb-1.5">
+                      <Text className="text-gray-600 mb-0.5">From:</Text>
+                      <View className="flex-row items-center">
+                        <Ionicons name="location-outline" size={14} color="#3b82f6" className="mr-1" />
+                        <Text className="text-gray-800 flex-1">{passenger.from}</Text>
+                      </View>
+                    </View>
 
-                <View className="mt-2 pt-2 border-t border-gray-100 flex-row justify-end">
-                  <View className="bg-gray-100 rounded-full px-2 py-0.5 flex-row items-center">
-                    <Ionicons name="card-outline" size={12} color="#6b7280" className="mr-1" />
-                    <Text className="text-xs text-gray-500">{passenger.paymentMethod}</Text>
+                    {/* To location */}
+                    <View>
+                      <Text className="text-gray-600 mb-0.5">To:</Text>
+                      <View className="flex-row items-center">
+                        <Ionicons name="flag-outline" size={14} color="#3b82f6" className="mr-1" />
+                        <Text className="text-gray-800 flex-1">{passenger.to}</Text>
+                      </View>
+                    </View>
+
+                    <View className="mt-2 pt-2 border-t border-gray-100 flex-row justify-end">
+                      <View className="bg-gray-100 rounded-full px-2 py-0.5 flex-row items-center">
+                        <Ionicons name="card-outline" size={12} color="#6b7280" className="mr-1" />
+                        <Text className="text-xs text-gray-500">{passenger.paymentMethod}</Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
               </View>

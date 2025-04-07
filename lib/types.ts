@@ -17,8 +17,10 @@ export interface PassengerInfo {
   fare: string;
   from: string;
   to: string;
-  timestamp: string; // Changed to string
+  timestamp: string;
   paymentMethod: string;
+  passengerPhoto?: string;
+  passengerType?: string;
 }
 
 export interface InspectionRecord {
