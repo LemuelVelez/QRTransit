@@ -183,7 +183,7 @@ export default function CashInScreen() {
                 timestamp: Date.now(),
                 reference: linkData.data?.attributes?.reference_number,
                 userId: user.$id,
-                status: "PENDING", // Explicitly mark as pending
+                status: "COMPLETED", // Explicitly mark as pending
             })
 
             // Open the checkout URL in a browser

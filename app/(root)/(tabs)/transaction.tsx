@@ -97,7 +97,7 @@ export default function TransactionHistory() {
         return
       }
 
-      console.log("Loading transactions for auth user ID:", authUserId)
+      console.log("Loading transactions")
 
       // Use the getAllUserTransactions function which now uses the correct auth user ID
       const appwriteTransactions = await getAllUserTransactions()
@@ -138,7 +138,7 @@ export default function TransactionHistory() {
             transaction.type === "CASH_IN" || transaction.type === "RECEIVE" ? transaction.amount : -transaction.amount,
           reference: transaction.reference,
           balance: transaction.balance, // Include the balance
-          status: transaction.status || "PENDING", // Include the status with default value
+          status: transaction.status || "COMPLETED", // Include the status with default value
         }
       })
 
