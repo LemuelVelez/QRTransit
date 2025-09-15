@@ -10,6 +10,7 @@ import {
   StatusBar,
   TouchableOpacity,
   RefreshControl,
+  StyleSheet,
 } from "react-native"
 import { useCameraPermissions, type BarcodeScanningResult } from "expo-camera"
 import { useRouter, useFocusEffect } from "expo-router"
@@ -18,7 +19,6 @@ import { getCurrentUser } from "@/lib/appwrite"
 import { getActiveRoute } from "@/lib/route-service"
 import PassengerTypeSelector from "@/components/passenger-type-selector"
 import LocationInput from "@/components/location-input"
-import ModifiedFareCalculator from "@/components/fare-calculator"
 import QRScanner from "@/components/qr-scanner"
 import PaymentConfirmation from "@/components/payment-confirmation"
 import { parseQRData, processPayment } from "@/lib/qr-payment-service"
@@ -31,6 +31,7 @@ import {
 import { Ionicons } from "@expo/vector-icons"
 import CameraCapture from "@/components/camera-capture"
 import { saveTrip, generateTripId } from "@/lib/trips-service"
+import { calculateDistance } from "@/lib/google-maps-service"
 
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
@@ -47,6 +48,81 @@ export default function ConductorScreen() {
   const [conductorId, setConductorId] = useState("")
   const [conductorName, setConductorName] = useState("Conductor")
   const [paymentMethod, setPaymentMethod] = useState<"QR" | "Cash">("QR")
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false)
+  const [distanceError, setDistanceError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const calculateDistanceAndFare = async () => {
+      if (from.trim() && to.trim() && from !== to) {
+        setIsCalculatingDistance(true)
+        setDistanceError(null)
+
+        try {
+          const result = await calculateDistance(from, to)
+
+          if (result.status === "OK" && result.distance > 0) {
+            const distanceKm = result.distance.toFixed(2)
+            setKilometer(distanceKm)
+
+            // Auto-calculate fare based on distance and passenger type
+            const calculatedFare = calculateFareFromDistance(result.distance, passengerType)
+            setFare(calculatedFare)
+
+            setDistanceError(null)
+          } else {
+            setDistanceError("Could not calculate distance. Please check your locations.")
+            setKilometer("")
+            setFare("")
+          }
+        } catch (error) {
+          console.error("Distance calculation error:", error)
+          setDistanceError("Error calculating distance. Please try again.")
+          setKilometer("")
+          setFare("")
+        } finally {
+          setIsCalculatingDistance(false)
+        }
+      } else {
+        // Clear values when locations are incomplete
+        setKilometer("")
+        setFare("")
+        setDistanceError(null)
+      }
+    }
+
+    // Debounce the calculation to avoid too many API calls
+    const timeoutId = setTimeout(calculateDistanceAndFare, 1000)
+    return () => clearTimeout(timeoutId)
+  }, [from, to, passengerType])
+
+  const calculateFareFromDistance = (distanceKm: number, passengerType: string): string => {
+    // Base fare structure (you can modify these rates as needed)
+    const baseFare = 15 // Base fare in pesos
+    const ratePerKm = 2.5 // Rate per kilometer
+
+    let calculatedFare = baseFare + distanceKm * ratePerKm
+
+    // Apply discounts based on passenger type
+    switch (passengerType) {
+      case "Student":
+        calculatedFare *= 0.8 // 20% discount
+        break
+      case "Senior":
+        calculatedFare *= 0.8 // 20% discount
+        break
+      case "PWD":
+        calculatedFare *= 0.8 // 20% discount
+        break
+      case "Regular":
+      default:
+        // No discount
+        break
+    }
+
+    // Round to 2 decimal places and format as currency
+    return `₱${calculatedFare.toFixed(2)}`
+  }
+
   const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0) // Add a refresh key for PassengerTypeSelector
   const [needsRefresh, setNeedsRefresh] = useState(false)
@@ -239,7 +315,7 @@ export default function ConductorScreen() {
 
     // Check if fare is set
     if (!fare || fare === "₱0.00") {
-      Alert.alert("Fare Not Set", "Please set the kilometer and fare before scanning.", [
+      Alert.alert("Fare Not Set", "Please wait for automatic fare calculation or check your locations.", [
         {
           text: "OK",
           onPress: () => {
@@ -467,7 +543,7 @@ export default function ConductorScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-emerald-400">
+      <View className="items-center justify-center flex-1 bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
         <Text className="mt-4 text-white">Verifying access...</Text>
@@ -512,9 +588,9 @@ export default function ConductorScreen() {
         <View className="mt-16">
           {/* Route Info Banner */}
           {routeInfo && (
-            <View className="bg-emerald-700 rounded-lg p-3 mb-4 flex-row justify-between items-center">
+            <View className="flex-row items-center justify-between p-3 mb-4 rounded-lg bg-emerald-700">
               <View className="flex-1">
-                <Text className="text-white font-bold">
+                <Text className="font-bold text-white">
                   {routeInfo.from} → {routeInfo.to}
                 </Text>
                 <Text className="text-white opacity-80">Bus #{routeInfo.busNumber}</Text>
@@ -557,21 +633,21 @@ export default function ConductorScreen() {
           )}
 
           {!routeInfo && (
-            <View className="bg-red-500 rounded-lg p-4 mb-4">
-              <Text className="text-white font-bold text-center">No Active Route</Text>
-              <Text className="text-white text-center mt-1">Please set up or activate a route</Text>
+            <View className="p-4 mb-4 bg-red-500 rounded-lg">
+              <Text className="font-bold text-center text-white">No Active Route</Text>
+              <Text className="mt-1 text-center text-white">Please set up or activate a route</Text>
               <View className="flex-row justify-center mt-3">
                 <TouchableOpacity
-                  className="bg-white px-4 py-2 rounded-lg mr-2"
+                  className="px-4 py-2 mr-2 bg-white rounded-lg"
                   onPress={() => router.push("/conductor/route-setup" as any)}
                 >
-                  <Text className="text-red-500 font-bold">Set Up Route</Text>
+                  <Text className="font-bold text-red-500">Set Up Route</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  className="bg-white px-4 py-2 rounded-lg"
+                  className="px-4 py-2 bg-white rounded-lg"
                   onPress={() => router.push("/conductor/manage-routes" as any)}
                 >
-                  <Text className="text-red-500 font-bold">Manage Routes</Text>
+                  <Text className="font-bold text-red-500">Manage Routes</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -584,36 +660,66 @@ export default function ConductorScreen() {
 
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
 
-          <ModifiedFareCalculator
-            from={from}
-            to={to}
-            kilometer={kilometer}
-            fare={fare}
-            passengerType={passengerType}
-            onKilometerChange={setKilometer}
-            onFareChange={setFare}
-          />
+          <View style={styles.fareCalculatorContainer}>
+            <Text style={styles.sectionTitle}>Fare Calculation</Text>
+
+            {isCalculatingDistance && (
+              <View style={styles.calculatingContainer}>
+                <ActivityIndicator size="small" color="#007AFF" />
+                <Text style={styles.calculatingText}>Calculating distance via GPS...</Text>
+              </View>
+            )}
+
+            {distanceError && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{distanceError}</Text>
+              </View>
+            )}
+
+            <View style={styles.fareDisplayContainer}>
+              <View style={styles.fareRow}>
+                <Text style={styles.fareLabel}>Distance:</Text>
+                <Text style={styles.fareValue}>
+                  {kilometer ? `${kilometer} km` : isCalculatingDistance ? "Calculating..." : "Enter locations"}
+                </Text>
+              </View>
+
+              <View style={styles.fareRow}>
+                <Text style={styles.fareLabel}>Passenger Type:</Text>
+                <Text style={styles.fareValue}>{passengerType}</Text>
+              </View>
+
+              <View style={[styles.fareRow, styles.totalFareRow]}>
+                <Text style={styles.totalFareLabel}>Total Fare:</Text>
+                <Text style={styles.totalFareValue}>
+                  {fare || (isCalculatingDistance ? "Calculating..." : "₱0.00")}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.gpsNote}>💡 Fare is automatically calculated using GPS distance between locations</Text>
+          </View>
         </View>
       </ScrollView>
 
       {/* Payment Method Buttons */}
       <View className="flex-row justify-center mb-12">
         <TouchableOpacity
-          className="bg-emerald-700 p-4 rounded-l-lg flex-row items-center"
+          className="flex-row items-center p-4 rounded-l-lg bg-emerald-700"
           onPress={() => handlePaymentMethodChange("QR")}
           disabled={!routeInfo}
         >
           <Ionicons name="qr-code" size={24} color="white" className="mr-2" />
-          <Text className="text-white font-bold">QR Payment</Text>
+          <Text className="font-bold text-white">QR Payment</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          className="bg-emerald-600 p-4 rounded-r-lg flex-row items-center"
+          className="flex-row items-center p-4 rounded-r-lg bg-emerald-600"
           onPress={() => handlePaymentMethodChange("Cash")}
           disabled={!routeInfo}
         >
           <Ionicons name="cash" size={24} color="white" className="mr-2" />
-          <Text className="text-white font-bold">Cash Payment</Text>
+          <Text className="font-bold text-white">Cash Payment</Text>
         </TouchableOpacity>
       </View>
 
@@ -634,3 +740,105 @@ export default function ConductorScreen() {
   )
 }
 
+const styles = StyleSheet.create({
+  fareCalculatorContainer: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
+  },
+
+  calculatingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "#e3f2fd",
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+
+  calculatingText: {
+    marginLeft: 8,
+    color: "#1976d2",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+
+  errorContainer: {
+    backgroundColor: "#ffebee",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  errorText: {
+    color: "#c62828",
+    fontSize: 14,
+    textAlign: "center",
+  },
+
+  fareDisplayContainer: {
+    backgroundColor: "white",
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+  },
+
+  fareRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+
+  totalFareRow: {
+    borderBottomWidth: 0,
+    paddingTop: 12,
+    marginTop: 8,
+    borderTopWidth: 2,
+    borderTopColor: "#007AFF",
+  },
+
+  fareLabel: {
+    fontSize: 16,
+    color: "#666",
+    fontWeight: "500",
+  },
+
+  fareValue: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "600",
+  },
+
+  totalFareLabel: {
+    fontSize: 18,
+    color: "#007AFF",
+    fontWeight: "bold",
+  },
+
+  totalFareValue: {
+    fontSize: 20,
+    color: "#007AFF",
+    fontWeight: "bold",
+  },
+
+  gpsNote: {
+    fontSize: 12,
+    color: "#666",
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 12,
+  },
+})
