@@ -7,11 +7,13 @@ import { Ionicons } from "@expo/vector-icons"
 import { getCurrentUser } from "@/lib/appwrite"
 import { saveRouteInfo } from "@/lib/route-service"
 import LocationInput from "@/components/location-input"
+import BusTypeSelector from "@/components/bus-type-selector"
 
 export default function RouteSetupScreen() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [busNumber, setBusNumber] = useState("")
+  const [busType, setBusType] = useState("Regular")
   const [active, setActive] = useState(false) // Default to inactive
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
@@ -43,8 +45,8 @@ export default function RouteSetupScreen() {
   }, [])
 
   const handleSaveRoute = async () => {
-    if (!from || !to || !busNumber) {
-      Alert.alert("Missing Information", "Please fill in all fields")
+    if (!from || !to || !busNumber || !busType) {
+      Alert.alert("Missing Information", "Please fill in all fields including bus type")
       return
     }
 
@@ -55,6 +57,7 @@ export default function RouteSetupScreen() {
         from,
         to,
         busNumber,
+        busType,
         timestamp: Date.now(),
         active: active, // Use the active state
       }
@@ -77,7 +80,7 @@ export default function RouteSetupScreen() {
 
   if (initialLoading) {
     return (
-      <View className="flex-1 justify-center items-center bg-emerald-400">
+      <View className="items-center justify-center flex-1 bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
         <Text className="mt-4 text-white">Loading...</Text>
@@ -93,24 +96,24 @@ export default function RouteSetupScreen() {
         <TouchableOpacity onPress={() => router.back()} className="p-2">
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Set Up Route</Text>
+        <Text className="text-xl font-bold text-white">Set Up Route</Text>
         <View style={{ width: 32 }} />
       </View>
 
       <View className="flex-1 p-4">
-        <View className="bg-white rounded-lg p-6 shadow-sm">
-          <Text className="text-xl font-bold text-gray-800 mb-6">Route Information</Text>
+        <View className="p-6 bg-white rounded-lg shadow-sm">
+          <Text className="mb-6 text-xl font-bold text-gray-800">Route Information</Text>
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Starting point" />
 
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Destination" />
 
           <View className="mb-4">
-            <Text className="text-gray-700 mb-1 font-medium">Bus Number</Text>
+            <Text className="mb-1 font-medium text-gray-700">Bus Number</Text>
             <View className="flex-row items-center">
               <Ionicons name="bus-outline" size={24} color="#059669" className="mr-2" />
               <TextInput
-                className="flex-1 border border-gray-300 rounded-md p-3 bg-gray-50"
+                className="flex-1 p-3 border border-gray-300 rounded-md bg-gray-50"
                 value={busNumber}
                 onChangeText={setBusNumber}
                 placeholder="Bus number"
@@ -119,8 +122,10 @@ export default function RouteSetupScreen() {
             </View>
           </View>
 
-          <View className="mb-6 flex-row justify-between items-center">
-            <Text className="text-gray-700 font-medium">Activate Route</Text>
+          <BusTypeSelector value={busType} onChange={setBusType} />
+
+          <View className="flex-row items-center justify-between mb-6">
+            <Text className="font-medium text-gray-700">Activate Route</Text>
             <Switch
               value={active}
               onValueChange={setActive}
@@ -131,14 +136,14 @@ export default function RouteSetupScreen() {
           </View>
 
           <TouchableOpacity
-            className="bg-emerald-500 py-4 rounded-lg items-center"
+            className="items-center py-4 rounded-lg bg-emerald-500"
             onPress={handleSaveRoute}
-            disabled={loading || !from || !to || !busNumber}
+            disabled={loading || !from || !to || !busNumber || !busType}
           >
             {loading ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
-              <Text className="text-white font-bold text-lg">Save Route</Text>
+              <Text className="text-lg font-bold text-white">Save Route</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -146,4 +151,3 @@ export default function RouteSetupScreen() {
     </View>
   )
 }
-
