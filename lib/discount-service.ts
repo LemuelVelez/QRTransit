@@ -4,6 +4,7 @@ import { ID, Query } from "react-native-appwrite";
 export interface DiscountConfig {
   id?: string;
   passengerType: string;
+  busType: string;
   discountPercentage: number;
   description?: string;
   active: boolean;
@@ -51,6 +52,7 @@ export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
       return response.documents.map((doc) => ({
         id: doc.$id,
         passengerType: doc.passengerType,
+        busType: doc.busType || "Regular",
         discountPercentage: Number(doc.discountPercentage),
         description: doc.description,
         active: doc.active === true,
@@ -64,6 +66,25 @@ export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
     }
   } catch (error) {
     console.error("Error in getDiscountConfigurations:", error);
+    return [];
+  }
+}
+
+export async function getBusTypeConfigurations(): Promise<DiscountConfig[]> {
+  try {
+    const allConfigs = await getDiscountConfigurations();
+    // Get unique bus types
+    const uniqueBusTypes = new Map<string, DiscountConfig>();
+
+    allConfigs.forEach((config) => {
+      if (!uniqueBusTypes.has(config.busType)) {
+        uniqueBusTypes.set(config.busType, config);
+      }
+    });
+
+    return Array.from(uniqueBusTypes.values());
+  } catch (error) {
+    console.error("Error in getBusTypeConfigurations:", error);
     return [];
   }
 }
@@ -88,6 +109,7 @@ export async function saveDiscountConfiguration(
       ID.unique(),
       {
         passengerType: discount.passengerType,
+        busType: discount.busType,
         discountPercentage: discount.discountPercentage.toString(),
         description: discount.description || "",
         active: discount.active,
@@ -121,6 +143,7 @@ export async function updateDiscountConfiguration(
     const updateData: Record<string, any> = {};
     if (updates.passengerType !== undefined)
       updateData.passengerType = updates.passengerType;
+    if (updates.busType !== undefined) updateData.busType = updates.busType;
     if (updates.discountPercentage !== undefined)
       updateData.discountPercentage = updates.discountPercentage.toString();
     if (updates.description !== undefined)
@@ -157,18 +180,47 @@ export async function deleteDiscountConfiguration(
   }
 }
 
-// Get discount percentage for a passenger type
 export async function getDiscountPercentage(
-  passengerType: string
+  passengerType: string,
+  busType = "Regular"
 ): Promise<number> {
   try {
     const discounts = await getDiscountConfigurations();
     const discount = discounts.find(
-      (d) => d.passengerType === passengerType && d.active
+      (d) =>
+        d.passengerType === passengerType && d.busType === busType && d.active
     );
     return discount ? discount.discountPercentage : 0;
   } catch (error) {
     console.error("Error getting discount percentage:", error);
     return 0; // No discount if there's an error
+  }
+}
+
+export async function getBusTypeFareMultiplier(
+  busType: string
+): Promise<number> {
+  try {
+    const discounts = await getDiscountConfigurations();
+    const busTypeConfig = discounts.find(
+      (d) => d.busType === busType && d.active
+    );
+
+    // Return fare multiplier based on bus type
+    // This can be configured in the discount system
+    // For example: Regular = 1.0, Aircon = 1.2, Deluxe = 1.5
+    switch (busType.toLowerCase()) {
+      case "aircon":
+        return 1.2; // 20% more expensive
+      case "deluxe":
+        return 1.5; // 50% more expensive
+      case "premium":
+        return 1.8; // 80% more expensive
+      default:
+        return 1.0; // Regular fare
+    }
+  } catch (error) {
+    console.error("Error getting bus type fare multiplier:", error);
+    return 1.0; // Default to regular fare
   }
 }

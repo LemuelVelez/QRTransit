@@ -8,9 +8,10 @@ import { getDiscountConfigurations } from "@/lib/discount-service"
 interface PassengerTypeSelectorProps {
   value: string
   onChange: (type: string) => void
+  busType?: string
 }
 
-export default function PassengerTypeSelector({ value, onChange }: PassengerTypeSelectorProps) {
+export default function PassengerTypeSelector({ value, onChange, busType = "Regular" }: PassengerTypeSelectorProps) {
   const [showDropdown, setShowDropdown] = useState(false)
   const [passengerTypes, setPassengerTypes] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -26,19 +27,23 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
         // Get all discount configurations
         const discounts = await getDiscountConfigurations()
 
-        // Filter active discounts and extract passenger types
-        const types = discounts.filter((discount) => discount.active).map((discount) => discount.passengerType)
+        const types = discounts
+          .filter((discount) => discount.active && discount.busType === busType)
+          .map((discount) => discount.passengerType)
+
+        // Remove duplicates
+        const uniqueTypes = Array.from(new Set(types))
 
         // Add "Regular" as default option if not already included
-        if (!types.includes("Regular")) {
-          types.unshift("Regular")
+        if (!uniqueTypes.includes("Regular")) {
+          uniqueTypes.unshift("Regular")
         }
 
-        setPassengerTypes(types)
+        setPassengerTypes(uniqueTypes)
 
         // If current value is not in the list and we have types, update the value
-        if (types.length > 0 && !types.includes(value)) {
-          onChange(types[0])
+        if (uniqueTypes.length > 0 && !uniqueTypes.includes(value)) {
+          onChange(uniqueTypes[0])
         }
       } catch (err) {
         console.error("Error fetching passenger types:", err)
@@ -52,7 +57,7 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
     }
 
     fetchPassengerTypes()
-  }, [value, onChange])
+  }, [value, onChange, busType])
 
   const handleSelect = (type: string) => {
     onChange(type)
@@ -60,22 +65,22 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
   }
 
   return (
-    <View className="mb-4 relative">
+    <View className="relative mb-4">
       {showDropdown && (
         <TouchableWithoutFeedback onPress={() => setShowDropdown(false)}>
           <View className="absolute inset-0 z-10" style={{ top: -100, height: 1000 }} />
         </TouchableWithoutFeedback>
       )}
 
-      <Text className="text-black text-xl font-bold mb-2">Passenger</Text>
+      <Text className="mb-2 text-xl font-bold text-black">Passenger</Text>
 
       {loading ? (
-        <View className="flex-row items-center justify-between w-full bg-white p-4 rounded-t-md">
+        <View className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md">
           <Text>Loading passenger types...</Text>
           <ActivityIndicator size="small" color="#10b981" />
         </View>
       ) : error ? (
-        <View className="flex-row items-center justify-between w-full bg-white p-4 rounded-t-md">
+        <View className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md">
           <Text className="text-red-500">{error}</Text>
           <TouchableOpacity onPress={() => setShowDropdown(!showDropdown)}>
             <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={24} color="black" />
@@ -83,7 +88,7 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
         </View>
       ) : (
         <TouchableOpacity
-          className="flex-row items-center justify-between w-full bg-white p-4 rounded-t-md"
+          className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md"
           onPress={() => setShowDropdown(!showDropdown)}
         >
           <Text>{value}</Text>
@@ -92,7 +97,7 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
       )}
 
       {showDropdown && passengerTypes.length > 0 && (
-        <View className="absolute top-full w-full z-20">
+        <View className="absolute z-20 w-full top-full">
           {passengerTypes.map((type) => (
             <TouchableOpacity
               key={type}
@@ -106,13 +111,14 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
       )}
 
       {showDropdown && passengerTypes.length === 0 && (
-        <View className="absolute top-full w-full z-20">
+        <View className="absolute z-20 w-full top-full">
           <View className="w-full p-4 bg-white border-t border-gray-200">
-            <Text className="text-gray-500 italic">No passenger types available. Please create discounts first.</Text>
+            <Text className="italic text-gray-500">
+              No passenger types available for {busType} buses. Please create discounts first.
+            </Text>
           </View>
         </View>
       )}
     </View>
   )
 }
-
