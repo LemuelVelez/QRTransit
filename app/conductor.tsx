@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, } from "react"
 import {
   View,
   Text,
@@ -38,7 +38,10 @@ export default function ConductorScreen() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [kilometer, setKilometer] = useState("")
+  // NOTE: keep `fare` as per-person fare for backwards compatibility
   const [fare, setFare] = useState("")
+  const [ticketCount, setTicketCount] = useState<number>(1)
+
   const [showQrScanner, setShowQrScanner] = useState(false)
   const [showCameraCapture, setShowCameraCapture] = useState(false)
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
@@ -50,6 +53,14 @@ export default function ConductorScreen() {
   const [paymentMethod, setPaymentMethod] = useState<"QR" | "Cash">("QR")
   const [isCalculatingDistance, setIsCalculatingDistance] = useState(false)
   const [distanceError, setDistanceError] = useState<string | null>(null)
+
+  const parseCurrencyToNumber = (s: string) => Number(String(s).replace(/[^\d.]/g, "")) || 0
+  const formatCurrency = (n: number) => `₱${n.toFixed(2)}`
+
+  // Total (group) fare derived from per-person fare * ticketCount
+  const perPersonFareNumber = parseCurrencyToNumber(fare)
+  const totalFareNumber = perPersonFareNumber * (ticketCount || 1)
+  const totalFareString = formatCurrency(totalFareNumber)
 
   useEffect(() => {
     const calculateDistanceAndFare = async () => {
@@ -64,7 +75,7 @@ export default function ConductorScreen() {
             const distanceKm = result.distance.toFixed(2)
             setKilometer(distanceKm)
 
-            // Auto-calculate fare based on distance and passenger type
+            // Auto-calculate per-person fare based on distance and passenger type
             const calculatedFare = calculateFareFromDistance(result.distance, passengerType)
             setFare(calculatedFare)
 
@@ -83,57 +94,44 @@ export default function ConductorScreen() {
           setIsCalculatingDistance(false)
         }
       } else {
-        // Clear values when locations are incomplete
         setKilometer("")
         setFare("")
         setDistanceError(null)
       }
     }
 
-    // Debounce the calculation to avoid too many API calls
     const timeoutId = setTimeout(calculateDistanceAndFare, 1000)
     return () => clearTimeout(timeoutId)
   }, [from, to, passengerType])
 
   const calculateFareFromDistance = (distanceKm: number, passengerType: string): string => {
-    // Base fare structure (you can modify these rates as needed)
     const baseFare = 15 // Base fare in pesos
     const ratePerKm = 2.5 // Rate per kilometer
-
     let calculatedFare = baseFare + distanceKm * ratePerKm
 
-    // Apply discounts based on passenger type
     switch (passengerType) {
       case "Student":
-        calculatedFare *= 0.8 // 20% discount
-        break
       case "Senior":
-        calculatedFare *= 0.8 // 20% discount
-        break
       case "PWD":
         calculatedFare *= 0.8 // 20% discount
         break
       case "Regular":
       default:
-        // No discount
         break
     }
 
-    // Round to 2 decimal places and format as currency
     return `₱${calculatedFare.toFixed(2)}`
   }
 
   const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string } | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0) // Add a refresh key for PassengerTypeSelector
+  const [refreshKey, setRefreshKey] = useState(0)
   const [needsRefresh, setNeedsRefresh] = useState(false)
 
-  // Payment confirmation state
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
   const [passengerData, setPassengerData] = useState<{ userId: string; name: string } | null>(null)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false)
   const [currentPaymentRequest, setCurrentPaymentRequest] = useState<PaymentRequest | null>(null)
 
-  // Subscription reference
   const subscriptionRef = useRef<(() => void) | null>(null)
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
@@ -141,7 +139,6 @@ export default function ConductorScreen() {
 
   const loadActiveRoute = async (userId: string) => {
     try {
-      // Load active route
       const activeRoute = await getActiveRoute(userId)
       if (activeRoute) {
         setRouteInfo({
@@ -152,22 +149,17 @@ export default function ConductorScreen() {
         setFrom(activeRoute.from)
         setTo(activeRoute.to)
       } else {
-        // No active route, redirect to route setup
         Alert.alert("No Active Route", "You don't have an active route. Please set up or activate a route.", [
           {
             text: "Set Up Route",
             onPress: () => {
-              router.replace({
-                pathname: "/conductor/route-setup" as any,
-              })
+              router.replace({ pathname: "/conductor/route-setup" as any })
             },
           },
           {
             text: "Manage Routes",
             onPress: () => {
-              router.replace({
-                pathname: "/conductor/manage-routes" as any,
-              })
+              router.replace({ pathname: "/conductor/manage-routes" as any })
             },
           },
         ])
@@ -181,31 +173,23 @@ export default function ConductorScreen() {
     }
   }
 
-  // Function to refresh passenger types
-  const refreshPassengerTypes = useCallback(() => {
-    setRefreshKey((prev) => prev + 1)
-  }, [])
+  const refreshPassengerTypes = useCallback(() => setRefreshKey((p) => p + 1), [])
 
   useEffect(() => {
     async function checkAccess() {
       try {
-        // Check if user has conductor role specifically
         const hasPermission = await checkRoutePermission("conductor")
-
         if (!hasPermission) {
           Alert.alert("Access Denied", "You don't have permission to access this screen.")
-          // Redirect to home
           router.replace("/")
           return
         }
 
-        // Load conductor info
         try {
           const user = await getCurrentUser()
           if (user) {
             setConductorId(user.$id || "")
 
-            // Set conductor name from firstname and lastname
             if (user.firstname && user.lastname) {
               setConductorName(`${user.firstname} ${user.lastname}`)
             } else if (user.username) {
@@ -216,11 +200,8 @@ export default function ConductorScreen() {
               setConductorName("Conductor")
             }
 
-            // Load active route
             const hasActiveRoute = await loadActiveRoute(user.$id || "")
-            if (!hasActiveRoute) {
-              return
-            }
+            if (!hasActiveRoute) return
           }
         } catch (userError) {
           console.error("Error loading conductor data:", userError)
@@ -235,32 +216,21 @@ export default function ConductorScreen() {
     }
 
     checkAccess()
-
-    // Clean up subscription on unmount
     return () => {
-      if (subscriptionRef.current) {
-        subscriptionRef.current()
-      }
+      if (subscriptionRef.current) subscriptionRef.current()
     }
   }, [])
 
-  // Set up payment response listener when conductorId is available
   useEffect(() => {
     if (!conductorId) return
 
-    // Subscribe to payment requests for this conductor
     const unsubscribe = subscribeToPaymentRequests(conductorId, "conductor", (request) => {
-      // Only handle updates to the current payment request
       if (currentPaymentRequest && currentPaymentRequest.id === request.id) {
-        // Update the current payment request
         setCurrentPaymentRequest(request)
 
-        // Handle status changes
         if (request.status === "approved") {
-          // Process the payment
           handleProcessPayment(request)
         } else if (request.status === "declined") {
-          // Payment was declined by passenger
           setIsProcessingPayment(false)
           setShowPaymentConfirmation(false)
           Alert.alert("Payment Declined", "The passenger declined the payment request.")
@@ -269,19 +239,13 @@ export default function ConductorScreen() {
       }
     })
 
-    // Store the unsubscribe function
     subscriptionRef.current = unsubscribe
-
-    return () => {
-      unsubscribe()
-    }
+    return () => unsubscribe()
   }, [conductorId, currentPaymentRequest])
 
   useEffect(() => {
     ; (async () => {
-      if (!cameraPermission?.granted) {
-        await requestCameraPermission()
-      }
+      if (!cameraPermission?.granted) await requestCameraPermission()
     })()
   }, [cameraPermission, requestCameraPermission])
 
@@ -289,45 +253,29 @@ export default function ConductorScreen() {
     setRefreshing(true)
     if (conductorId) {
       await loadActiveRoute(conductorId)
-      refreshPassengerTypes() // Refresh passenger types on pull-to-refresh
+      refreshPassengerTypes()
     }
     setRefreshing(false)
   }, [conductorId, refreshPassengerTypes])
 
   const handleBarCodeScanned = ({ type, data }: BarcodeScanningResult) => {
     setScanned(true)
-
-    // Parse QR code data
     const parsedData = parseQRData(data)
 
     if (!parsedData) {
       Alert.alert("Invalid QR Code", "The scanned QR code doesn't contain valid passenger information.", [
-        {
-          text: "OK",
-          onPress: () => {
-            setScanned(false)
-            setShowQrScanner(false)
-          },
-        },
+        { text: "OK", onPress: () => { setScanned(false); setShowQrScanner(false) } },
       ])
       return
     }
 
-    // Check if fare is set
-    if (!fare || fare === "₱0.00") {
+    if (!fare || parseCurrencyToNumber(fare) <= 0) {
       Alert.alert("Fare Not Set", "Please wait for automatic fare calculation or check your locations.", [
-        {
-          text: "OK",
-          onPress: () => {
-            setScanned(false)
-            setShowQrScanner(false)
-          },
-        },
+        { text: "OK", onPress: () => { setScanned(false); setShowQrScanner(false) } },
       ])
       return
     }
 
-    // Store passenger data and show confirmation
     setPassengerData(parsedData)
     setShowQrScanner(false)
     setShowPaymentConfirmation(true)
@@ -337,13 +285,9 @@ export default function ConductorScreen() {
     setCapturedImage(uri)
     setShowCameraCapture(false)
 
-    // Generate a unique ID for the cash passenger
     const uniqueId = Date.now().toString().slice(-4)
-
-    // Create a unique passenger name with ID
     const uniquePassengerName = `Passenger #${uniqueId}`
 
-    // For cash payment, create a passenger with unique name
     setPassengerData({
       userId: "cash_passenger_" + Date.now(),
       name: uniquePassengerName,
@@ -351,36 +295,37 @@ export default function ConductorScreen() {
     setShowPaymentConfirmation(true)
   }
 
-  // Send payment request to passenger
   const handleConfirmPayment = async () => {
-    if (!passengerData || !fare || !conductorId) return
+    if (!passengerData || totalFareNumber <= 0 || !conductorId) return
 
     setIsProcessingPayment(true)
 
     try {
       if (paymentMethod === "QR") {
-        // Create payment request in Appwrite with busNumber
+        // Create a single grouped payment request
         const request = await createPaymentRequest(
           conductorId,
           conductorName,
           passengerData.userId,
           passengerData.name,
-          fare,
+          totalFareString,                // charge total
           from || "Unknown",
           to || "Unknown",
-          routeInfo?.busNumber, // Include bus number in payment request
+          routeInfo?.busNumber,
+          ticketCount,                    // NEW
+          fare                            // per-person fare
         )
 
-        // Store the current payment request
         setCurrentPaymentRequest(request)
       } else {
-        // For cash payment, process directly
+        // CASH: save one grouped trip
         const tripId = generateTripId()
-
-        // Save the trip to the database
         const trip = {
           passengerName: passengerData.name,
-          fare: fare,
+          fare: totalFareString,                // keep legacy 'fare' as total
+          totalFare: totalFareString,           // NEW explicit total
+          farePerPassenger: fare,               // NEW per-person
+          passengerCount: String(ticketCount),  // NEW
           from: from || "Unknown",
           to: to || "Unknown",
           timestamp: Date.now(),
@@ -390,28 +335,28 @@ export default function ConductorScreen() {
           passengerPhoto: capturedImage || undefined,
           passengerType: passengerType,
           kilometer: kilometer,
-          busNumber: routeInfo?.busNumber, // Include bus number in trip
+          busNumber: routeInfo?.busNumber,
         }
 
         const savedTripId = await saveTrip(trip)
 
-        // Close confirmation dialog
         setShowPaymentConfirmation(false)
         setIsProcessingPayment(false)
 
-        // Navigate to receipt screen
         router.push({
           pathname: "/receipt" as any,
           params: {
             receiptId: savedTripId || "cash_" + tripId,
             passengerName: passengerData.name,
-            fare: fare,
+            fare: totalFareString,                 // show total on receipt
+            farePerPassenger: fare,
+            passengerCount: String(ticketCount),
             from: from,
             to: to,
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
             paymentMethod: "Cash",
-            busNumber: routeInfo?.busNumber, // Include bus number in receipt params
+            busNumber: routeInfo?.busNumber,
           },
         })
       }
@@ -422,29 +367,27 @@ export default function ConductorScreen() {
     }
   }
 
-  // Process payment after passenger approval
   const handleProcessPayment = async (request: PaymentRequest) => {
     if (!request || !passengerData) return
 
     try {
-      // Extract numeric value from fare string (remove ₱ symbol)
-      const fareAmount = Number.parseFloat(request.fare.replace("₱", ""))
+      // Prefer totalFare if present; fallback to fare
+      const amountToCharge = parseCurrencyToNumber(request.totalFare || request.fare)
 
-      // Process payment
       const result = await processPayment(
         request.passengerId,
-        fareAmount,
-        `Fare payment from ${request.from} to ${request.to}`,
+        amountToCharge,
+        `Fare payment from ${request.from} to ${request.to}`
       )
 
       if (result.success) {
-        // Generate trip ID
         const tripId = generateTripId()
-
-        // Save the trip to the database
         const trip = {
           passengerName: passengerData.name,
-          fare: request.fare,
+          fare: formatCurrency(amountToCharge),          // legacy 'fare' as total
+          totalFare: formatCurrency(amountToCharge),     // explicit total
+          farePerPassenger: request.farePerPassenger || fare,
+          passengerCount: String(request.ticketCount || ticketCount || 1),
           from: request.from,
           to: request.to,
           timestamp: Date.now(),
@@ -453,36 +396,33 @@ export default function ConductorScreen() {
           conductorId: conductorId,
           passengerType: passengerType,
           kilometer: kilometer,
-          busNumber: request.busNumber || routeInfo?.busNumber, // Include bus number from request or route info
+          busNumber: request.busNumber || routeInfo?.busNumber,
         }
 
         const savedTripId = await saveTrip(trip)
-
-        // Update payment request status to completed with transaction ID
         await updatePaymentRequestStatus(request.id, "completed", savedTripId || result.transactionId)
 
-        // Close confirmation dialog
         setShowPaymentConfirmation(false)
         setIsProcessingPayment(false)
         setCurrentPaymentRequest(null)
 
-        // Navigate to receipt screen
         router.push({
           pathname: "/receipt" as any,
           params: {
             receiptId: savedTripId || result.transactionId,
             passengerName: passengerData.name,
-            fare: request.fare,
+            fare: formatCurrency(amountToCharge),
+            farePerPassenger: request.farePerPassenger || fare,
+            passengerCount: String(request.ticketCount || ticketCount || 1),
             from: request.from,
             to: to,
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
             paymentMethod: "QR",
-            busNumber: request.busNumber || routeInfo?.busNumber, // Include bus number in receipt params
+            busNumber: request.busNumber || routeInfo?.busNumber,
           },
         })
       } else {
-        // Show error
         setIsProcessingPayment(false)
         setCurrentPaymentRequest(null)
         Alert.alert("Payment Failed", result.error || "Failed to process payment")
@@ -505,7 +445,6 @@ export default function ConductorScreen() {
 
   const handlePaymentMethodChange = (method: "QR" | "Cash") => {
     setPaymentMethod(method)
-
     if (method === "QR") {
       setShowQrScanner(true)
     } else {
@@ -513,24 +452,15 @@ export default function ConductorScreen() {
     }
   }
 
-  // Handle navigation to manage discounts with refresh on return
   const navigateToManageDiscounts = () => {
-    // Store a flag in state before navigating
     setNeedsRefresh(true)
-    router.push({
-      pathname: "/conductor/manage-discounts" as any,
-    })
+    router.push({ pathname: "/conductor/manage-discounts" as any })
   }
 
-  // We'll need to add a focus effect to refresh when returning to this screen
   useFocusEffect(
     useCallback(() => {
-      // This will run when the screen comes into focus
       refreshPassengerTypes()
-
-      return () => {
-        // Optional cleanup
-      }
+      return () => { }
     }, [refreshPassengerTypes]),
   )
 
@@ -555,10 +485,7 @@ export default function ConductorScreen() {
     return (
       <QRScanner
         onScan={handleBarCodeScanned}
-        onClose={() => {
-          setScanned(false)
-          setShowQrScanner(false)
-        }}
+        onClose={() => { setScanned(false); setShowQrScanner(false) }}
         scanned={scanned}
       />
     )
@@ -568,9 +495,7 @@ export default function ConductorScreen() {
     return (
       <CameraCapture
         onCapture={handleCaptureImage}
-        onClose={() => {
-          setShowCameraCapture(false)
-        }}
+        onClose={() => { setShowCameraCapture(false) }}
       />
     )
   }
@@ -586,7 +511,6 @@ export default function ConductorScreen() {
         }
       >
         <View className="mt-16">
-          {/* Route Info Banner */}
           {routeInfo && (
             <View className="flex-row items-center justify-between p-3 mb-4 rounded-lg bg-emerald-700">
               <View className="flex-1">
@@ -598,34 +522,20 @@ export default function ConductorScreen() {
               <View className="flex-row">
                 <TouchableOpacity
                   className="mr-2"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/conductor/history" as any,
-                    })
-                  }
+                  onPress={() => router.push({ pathname: "/conductor/history" as any })}
                 >
                   <Ionicons name="document-text-outline" size={24} color="white" />
                 </TouchableOpacity>
                 <TouchableOpacity
                   className="mr-2"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/conductor/manage-routes" as any,
-                    })
-                  }
+                  onPress={() => router.push({ pathname: "/conductor/manage-routes" as any })}
                 >
                   <Ionicons name="map-outline" size={24} color="white" />
                 </TouchableOpacity>
                 <TouchableOpacity className="mr-2" onPress={navigateToManageDiscounts}>
                   <Ionicons name="cash-outline" size={24} color="white" />
                 </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() =>
-                    router.push({
-                      pathname: "/conductor/profile" as any,
-                    })
-                  }
-                >
+                <TouchableOpacity onPress={() => router.push({ pathname: "/conductor/profile" as any })}>
                   <Ionicons name="person-outline" size={24} color="white" />
                 </TouchableOpacity>
               </View>
@@ -637,27 +547,19 @@ export default function ConductorScreen() {
               <Text className="font-bold text-center text-white">No Active Route</Text>
               <Text className="mt-1 text-center text-white">Please set up or activate a route</Text>
               <View className="flex-row justify-center mt-3">
-                <TouchableOpacity
-                  className="px-4 py-2 mr-2 bg-white rounded-lg"
-                  onPress={() => router.push("/conductor/route-setup" as any)}
-                >
+                <TouchableOpacity className="px-4 py-2 mr-2 bg-white rounded-lg" onPress={() => router.push("/conductor/route-setup" as any)}>
                   <Text className="font-bold text-red-500">Set Up Route</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  className="px-4 py-2 bg-white rounded-lg"
-                  onPress={() => router.push("/conductor/manage-routes" as any)}
-                >
+                <TouchableOpacity className="px-4 py-2 bg-white rounded-lg" onPress={() => router.push("/conductor/manage-routes" as any)}>
                   <Text className="font-bold text-red-500">Manage Routes</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
 
-          {/* Pass the key to force re-render when passenger types change */}
           <PassengerTypeSelector key={refreshKey} value={passengerType} onChange={setPassengerType} />
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
-
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
 
           <View style={styles.fareCalculatorContainer}>
@@ -689,15 +591,40 @@ export default function ConductorScreen() {
                 <Text style={styles.fareValue}>{passengerType}</Text>
               </View>
 
+              <View style={styles.fareRow}>
+                <Text style={styles.fareLabel}>Per-Person Fare:</Text>
+                <Text style={styles.fareValue}>{fare || (isCalculatingDistance ? "Calculating..." : "₱0.00")}</Text>
+              </View>
+
+              {/* Tickets selector */}
+              <View style={[styles.fareRow, { borderBottomWidth: 0 }]}>
+                <Text style={styles.fareLabel}>Tickets (Passengers):</Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <TouchableOpacity
+                    onPress={() => setTicketCount((c) => Math.max(1, c - 1))}
+                    style={styles.qtyBtn}
+                  >
+                    <Text style={styles.qtyBtnText}>-</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.fareValue, { marginHorizontal: 12 }]}>{ticketCount}</Text>
+                  <TouchableOpacity
+                    onPress={() => setTicketCount((c) => Math.min(99, c + 1))}
+                    style={styles.qtyBtn}
+                  >
+                    <Text style={styles.qtyBtnText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <View style={[styles.fareRow, styles.totalFareRow]}>
                 <Text style={styles.totalFareLabel}>Total Fare:</Text>
                 <Text style={styles.totalFareValue}>
-                  {fare || (isCalculatingDistance ? "Calculating..." : "₱0.00")}
+                  {totalFareString || (isCalculatingDistance ? "Calculating..." : "₱0.00")}
                 </Text>
               </View>
             </View>
 
-            <Text style={styles.gpsNote}>💡 Fare is automatically calculated using GPS distance between locations</Text>
+            <Text style={styles.gpsNote}>💡 Same-destination groups (especially cash) can be paid in one go—set the ticket count above.</Text>
           </View>
         </View>
       </ScrollView>
@@ -709,7 +636,7 @@ export default function ConductorScreen() {
           onPress={() => handlePaymentMethodChange("QR")}
           disabled={!routeInfo}
         >
-          <Ionicons name="qr-code" size={24} color="white" className="mr-2" />
+          <Ionicons name="qr-code" size={24} color="white" />
           <Text className="font-bold text-white">QR Payment</Text>
         </TouchableOpacity>
 
@@ -718,7 +645,7 @@ export default function ConductorScreen() {
           onPress={() => handlePaymentMethodChange("Cash")}
           disabled={!routeInfo}
         >
-          <Ionicons name="cash" size={24} color="white" className="mr-2" />
+          <Ionicons name="cash" size={24} color="white" />
           <Text className="font-bold text-white">Cash Payment</Text>
         </TouchableOpacity>
       </View>
@@ -728,7 +655,7 @@ export default function ConductorScreen() {
         <PaymentConfirmation
           visible={showPaymentConfirmation}
           passengerName={passengerData.name}
-          fare={fare}
+          fare={totalFareString}
           onConfirm={handleConfirmPayment}
           onCancel={handleCancelPayment}
           isProcessing={isProcessingPayment}
@@ -840,5 +767,22 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
     marginBottom: 12,
+  },
+
+  qtyBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f9fafb",
+  },
+  qtyBtnText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginTop: -2,
   },
 })

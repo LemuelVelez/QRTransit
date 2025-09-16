@@ -8,22 +8,18 @@ interface ConductorStats {
   lastActive: string;
 }
 
-// Get the collection ID for trips
 const getTripsCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID || "";
 };
 
-// Get the collection ID for users
 const getUsersCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID || "";
 };
 
-// Get the collection ID for cash remittance
 const getCashRemittanceCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_CASH_REMITTANCE_COLLECTION_ID || "";
 };
 
-// Get user statistics for the conductor profile
 export async function getUserStats(
   conductorId: string
 ): Promise<ConductorStats> {
@@ -36,7 +32,6 @@ export async function getUserStats(
       throw new Error("Appwrite configuration missing");
     }
 
-    // Get all trips for this conductor
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.orderDesc("timestamp"),
@@ -44,7 +39,6 @@ export async function getUserStats(
 
     const trips = response.documents;
 
-    // Get the latest remittance with status "remitted"
     const remittanceResponse = await databases.listDocuments(
       databaseId,
       remittanceCollectionId,
@@ -56,31 +50,31 @@ export async function getUserStats(
       ]
     );
 
-    // If there's a remitted remittance, use its timestamp as cutoff
     let cutoffTimestamp = "0";
     if (remittanceResponse.documents.length > 0) {
       const latestRemittance = remittanceResponse.documents[0];
       cutoffTimestamp = latestRemittance.verificationTimestamp || "0";
     }
 
-    // Calculate statistics
     let totalRevenue = 0;
-    const uniqueTrips = new Set();
+    const uniqueTrips = new Set<string>();
+    let passengerSum = 0;
 
-    // Process trips - only count trips after the latest remittance
     trips.forEach((trip) => {
-      // Only count trips that occurred after the latest remittance
       if (Number(trip.timestamp) > Number(cutoffTimestamp)) {
-        // Add trip to unique trips set (from-to combination)
         uniqueTrips.add(`${trip.from}-${trip.to}`);
 
-        // Add fare to total revenue (remove ₱ symbol and convert to number)
-        const fareAmount = Number.parseFloat(trip.fare.replace("₱", "")) || 0;
-        totalRevenue += fareAmount;
+        // Prefer totalFare if present
+        const totalStr = (trip.totalFare || trip.fare || "₱0").toString();
+        const amount = parseFloat(String(totalStr).replace(/[^\d.]/g, "")) || 0;
+        totalRevenue += amount;
+
+        // Sum passengers using passengerCount if available, else 1
+        const pCount = parseInt(trip.passengerCount || "1", 10);
+        passengerSum += isNaN(pCount) ? 1 : Math.max(1, pCount);
       }
     });
 
-    // Get last active timestamp
     const lastActiveTimestamp =
       trips.length > 0 ? Number.parseInt(trips[0].timestamp) : Date.now();
 
@@ -88,13 +82,12 @@ export async function getUserStats(
 
     return {
       totalTrips: uniqueTrips.size.toString(),
-      totalPassengers: trips.length.toString(),
+      totalPassengers: passengerSum.toString(),
       totalRevenue: totalRevenue.toFixed(2),
       lastActive: lastActive,
     };
   } catch (error) {
     console.error("Error getting user stats:", error);
-    // Return default values if there's an error
     return {
       totalTrips: "0",
       totalPassengers: "0",
@@ -104,7 +97,6 @@ export async function getUserStats(
   }
 }
 
-// Get conductor name from users collection
 export async function getConductorName(conductorId: string): Promise<string> {
   try {
     const databaseId = config.databaseId;
@@ -112,10 +104,8 @@ export async function getConductorName(conductorId: string): Promise<string> {
 
     if (!databaseId || !usersCollectionId) {
       throw new Error("Appwrite configuration missing");
-      return "Unknown Conductor";
     }
 
-    // Find the user document by userId
     const response = await databases.listDocuments(
       databaseId,
       usersCollectionId,
@@ -128,7 +118,6 @@ export async function getConductorName(conductorId: string): Promise<string> {
 
     const user = response.documents[0];
 
-    // Return the conductor's name from firstname and lastname
     if (user.firstname && user.lastname) {
       return `${user.firstname} ${user.lastname}`;
     } else if (user.username) {

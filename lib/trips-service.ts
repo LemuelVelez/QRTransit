@@ -4,7 +4,7 @@ import { Query } from "react-native-appwrite";
 export interface Trip {
   id: string;
   passengerName: string;
-  fare: string;
+  fare: string; // keep total for backward compatibility
   from: string;
   to: string;
   timestamp: number;
@@ -16,30 +16,28 @@ export interface Trip {
   kilometer?: string;
   totalTrips?: string;
   totalPassengers?: string;
-  totalRevenue?: string;
-  busNumber?: string; // Add bus number field
+  busNumber?: string;
+
+  // NEW
+  passengerCount?: string; // store as string in Appwrite
+  farePerPassenger?: string;
+  totalFare?: string; // explicit total
 }
 
-// Get the collection ID for trips
 const getTripsCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID || "";
 };
 
-// Generate a numeric transaction number (no letters)
 export function generateTripId(): string {
-  // Generate a 10-digit numeric transaction ID
   return Math.floor(1000000000 + Math.random() * 9000000000).toString();
 }
 
-// Get trip history for a conductor
 export async function getTripHistory(conductorId: string): Promise<Trip[]> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTripsCollectionId();
-
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
-      return [];
     }
 
     const response = await databases.listDocuments(databaseId, collectionId, [
@@ -51,6 +49,9 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
       id: doc.$id,
       passengerName: doc.passengerName || "Unknown Passenger",
       fare: doc.fare || "₱0.00",
+      totalFare: doc.totalFare || doc.fare,
+      farePerPassenger: doc.farePerPassenger,
+      passengerCount: doc.passengerCount,
       from: doc.from || "Unknown",
       to: doc.to || "Unknown",
       timestamp: Number.parseInt(doc.timestamp) || Date.now(),
@@ -61,6 +62,7 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
       passengerType: doc.passengerType,
       kilometer: doc.kilometer,
       totalTrips: doc.totalTrips,
+      busNumber: doc.busNumber,
     }));
   } catch (error) {
     console.error("Error getting trip history:", error);
@@ -68,12 +70,10 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
   }
 }
 
-// Get trip details
 export async function getTripDetails(tripId: string): Promise<Trip | null> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTripsCollectionId();
-
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
     }
@@ -88,6 +88,9 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
       id: document.$id,
       passengerName: document.passengerName || "Unknown Passenger",
       fare: document.fare || "₱0.00",
+      totalFare: document.totalFare || document.fare,
+      farePerPassenger: document.farePerPassenger,
+      passengerCount: document.passengerCount,
       from: document.from || "Unknown",
       to: document.to || "Unknown",
       timestamp: Number.parseInt(document.timestamp) || Date.now(),
@@ -98,6 +101,7 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
       passengerType: document.passengerType,
       kilometer: document.kilometer,
       totalTrips: document.totalTrips,
+      busNumber: document.busNumber,
     };
   } catch (error) {
     console.error("Error getting trip details:", error);
@@ -105,31 +109,31 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
   }
 }
 
-// Update the saveTrip function to include busNumber
 export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTripsCollectionId();
-
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
     }
 
-    // Ensure all values are strings as required by Appwrite
     const tripData = {
       passengerName: trip.passengerName || "Unknown Passenger",
-      fare: trip.fare || "₱0.00",
+      fare: trip.fare || trip.totalFare || "₱0.00", // keep total in legacy field
+      totalFare: trip.totalFare || trip.fare || "₱0.00",
+      farePerPassenger: trip.farePerPassenger || "",
+      passengerCount: trip.passengerCount || "1",
       from: trip.from || "Unknown",
       to: trip.to || "Unknown",
-      timestamp: trip.timestamp.toString(), // Convert to string
+      timestamp: (trip.timestamp || Date.now()).toString(),
       paymentMethod: trip.paymentMethod || "QR",
       transactionId: trip.transactionId || "0000000000",
       conductorId: trip.conductorId,
       passengerPhoto: trip.passengerPhoto || "",
       passengerType: trip.passengerType || "Regular",
       kilometer: trip.kilometer || "0",
-      totalTrips: "1", // Add the required field with a default value
-      busNumber: trip.busNumber || "", // Include bus number
+      totalTrips: "1",
+      busNumber: trip.busNumber || "",
     };
 
     const result = await databases.createDocument(
@@ -138,7 +142,6 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
       "unique()",
       tripData
     );
-
     return result.$id;
   } catch (error) {
     console.error("Error saving trip:", error);
@@ -146,7 +149,6 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
   }
 }
 
-// Get trips by date range
 export async function getTripsByDateRange(
   conductorId: string,
   startDate: Date,
@@ -155,13 +157,10 @@ export async function getTripsByDateRange(
   try {
     const databaseId = config.databaseId;
     const collectionId = getTripsCollectionId();
-
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
-      return [];
     }
 
-    // Convert dates to timestamps (as strings)
     const startTimestamp = startDate.getTime().toString();
     const endTimestamp = endDate.setHours(23, 59, 59, 999).toString();
 
@@ -176,6 +175,9 @@ export async function getTripsByDateRange(
       id: doc.$id,
       passengerName: doc.passengerName || "Unknown Passenger",
       fare: doc.fare || "₱0.00",
+      totalFare: doc.totalFare || doc.fare,
+      farePerPassenger: doc.farePerPassenger,
+      passengerCount: doc.passengerCount,
       from: doc.from || "Unknown",
       to: doc.to || "Unknown",
       timestamp: Number.parseInt(doc.timestamp) || Date.now(),
@@ -186,6 +188,7 @@ export async function getTripsByDateRange(
       passengerType: doc.passengerType,
       kilometer: doc.kilometer,
       totalTrips: doc.totalTrips,
+      busNumber: doc.busNumber,
     }));
   } catch (error) {
     console.error("Error getting trips by date range:", error);

@@ -1,48 +1,49 @@
 import { ID, Query } from "react-native-appwrite";
 import { databases, config, client } from "./appwrite";
 
-// Define the collection IDs
 const getPaymentRequestsCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_PAYMENT_REQUESTS_COLLECTION_ID || "";
 };
 
-// Update the PaymentRequest interface to include busNumber
 export interface PaymentRequest {
   id: string;
   conductorId: string;
   conductorName: string;
   passengerId: string;
   passengerName: string;
-  fare: string;
+  fare: string; // total (kept for backward compatibility)
   from: string;
   to: string;
   timestamp: string;
   status: "pending" | "approved" | "declined" | "completed" | "expired";
   transactionId?: string;
-  busNumber?: string; // Add busNumber field
+  busNumber?: string;
+  // NEW
+  ticketCount?: number;
+  farePerPassenger?: string;
+  totalFare?: string; // mirrors `fare`
 }
 
-// Update the createPaymentRequest function to include busNumber
+// include new params
 export async function createPaymentRequest(
   conductorId: string,
   conductorName: string,
   passengerId: string,
   passengerName: string,
-  fare: string,
+  totalFare: string, // total to charge
   from: string,
   to: string,
-  busNumber?: string // Add busNumber parameter
+  busNumber?: string,
+  ticketCount?: number,
+  farePerPassenger?: string
 ): Promise<PaymentRequest> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getPaymentRequestsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const requestId = ID.unique();
-    // Store timestamp as an ISO string instead of a number
     const timestamp = new Date().toISOString();
 
     const paymentRequest = {
@@ -50,12 +51,15 @@ export async function createPaymentRequest(
       conductorName,
       passengerId,
       passengerName,
-      fare,
+      fare: totalFare, // store total in legacy field
+      totalFare: totalFare,
+      farePerPassenger: farePerPassenger || "",
+      ticketCount: ticketCount ?? 1,
       from,
       to,
-      timestamp: timestamp,
+      timestamp,
       status: "pending",
-      busNumber: busNumber || "", // Include busNumber in the request
+      busNumber: busNumber || "",
     };
 
     const response = await databases.createDocument(
@@ -77,7 +81,11 @@ export async function createPaymentRequest(
       timestamp: response.timestamp,
       status: response.status,
       transactionId: response.transactionId,
-      busNumber: response.busNumber, // Include busNumber in the return
+      busNumber: response.busNumber,
+      // NEW fields back
+      ticketCount: Number(response.ticketCount || 1),
+      farePerPassenger: response.farePerPassenger || "",
+      totalFare: response.totalFare || response.fare,
     };
   } catch (error) {
     console.error("Error creating payment request:", error);
@@ -85,7 +93,6 @@ export async function createPaymentRequest(
   }
 }
 
-// Update payment request status
 export async function updatePaymentRequestStatus(
   requestId: string,
   status: "approved" | "declined" | "completed" | "expired",
@@ -94,15 +101,11 @@ export async function updatePaymentRequestStatus(
   try {
     const databaseId = config.databaseId;
     const collectionId = getPaymentRequestsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const updateData: any = { status };
-    if (transactionId) {
-      updateData.transactionId = transactionId;
-    }
+    if (transactionId) updateData.transactionId = transactionId;
 
     await databases.updateDocument(
       databaseId,
@@ -116,7 +119,6 @@ export async function updatePaymentRequestStatus(
   }
 }
 
-// Get payment requests for a user (either as passenger or conductor)
 export async function getPaymentRequests(
   userId: string,
   role: "passenger" | "conductor",
@@ -125,18 +127,13 @@ export async function getPaymentRequests(
   try {
     const databaseId = config.databaseId;
     const collectionId = getPaymentRequestsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const queries = [
       Query.equal(role === "passenger" ? "passengerId" : "conductorId", userId),
     ];
-
-    if (status) {
-      queries.push(Query.equal("status", status));
-    }
+    if (status) queries.push(Query.equal("status", status));
 
     const response = await databases.listDocuments(
       databaseId,
@@ -156,6 +153,10 @@ export async function getPaymentRequests(
       timestamp: doc.timestamp,
       status: doc.status,
       transactionId: doc.transactionId,
+      busNumber: doc.busNumber,
+      ticketCount: Number(doc.ticketCount || 1),
+      farePerPassenger: doc.farePerPassenger || "",
+      totalFare: doc.totalFare || doc.fare,
     }));
   } catch (error) {
     console.error("Error getting payment requests:", error);
@@ -163,17 +164,14 @@ export async function getPaymentRequests(
   }
 }
 
-// Get a specific payment request by ID
 export async function getPaymentRequest(
   requestId: string
 ): Promise<PaymentRequest | null> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getPaymentRequestsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const doc = await databases.getDocument(
       databaseId,
@@ -193,6 +191,10 @@ export async function getPaymentRequest(
       timestamp: doc.timestamp,
       status: doc.status,
       transactionId: doc.transactionId,
+      busNumber: doc.busNumber,
+      ticketCount: Number(doc.ticketCount || 1),
+      farePerPassenger: doc.farePerPassenger || "",
+      totalFare: doc.totalFare || doc.fare,
     };
   } catch (error) {
     console.error("Error getting payment request:", error);
@@ -200,7 +202,6 @@ export async function getPaymentRequest(
   }
 }
 
-// Subscribe to payment request updates
 export function subscribeToPaymentRequests(
   userId: string,
   role: "passenger" | "conductor",
@@ -215,12 +216,9 @@ export function subscribeToPaymentRequests(
   }
 
   try {
-    // Create a channel string for the collection
     const channel = `databases.${databaseId}.collections.${collectionId}.documents`;
 
-    // Subscribe to the channel using the client
     const unsubscribe = client.subscribe(channel, (response: any) => {
-      // Check if this is a relevant document
       const document = response.payload;
 
       if (
@@ -228,7 +226,6 @@ export function subscribeToPaymentRequests(
         ((role === "passenger" && document.passengerId === userId) ||
           (role === "conductor" && document.conductorId === userId))
       ) {
-        // Convert to PaymentRequest type
         const paymentRequest: PaymentRequest = {
           id: document.$id,
           conductorId: document.conductorId,
@@ -241,9 +238,12 @@ export function subscribeToPaymentRequests(
           timestamp: document.timestamp,
           status: document.status,
           transactionId: document.transactionId,
+          busNumber: document.busNumber,
+          ticketCount: Number(document.ticketCount || 1),
+          farePerPassenger: document.farePerPassenger || "",
+          totalFare: document.totalFare || document.fare,
         };
 
-        // Call the callback with the payment request
         callback(paymentRequest);
       }
     });
@@ -252,42 +252,5 @@ export function subscribeToPaymentRequests(
   } catch (error) {
     console.error("Error subscribing to payment requests:", error);
     return () => {};
-  }
-}
-
-// Clean up expired payment requests (utility function)
-export async function cleanupExpiredPaymentRequests(): Promise<number> {
-  try {
-    const databaseId = config.databaseId;
-    const collectionId = getPaymentRequestsCollectionId();
-
-    if (!databaseId || !collectionId) {
-      throw new Error("Appwrite configuration missing");
-    }
-
-    // Get pending requests older than 10 minutes
-    const tenMinutesAgo = new Date();
-    tenMinutesAgo.setMinutes(tenMinutesAgo.getMinutes() - 10);
-    const tenMinutesAgoStr = tenMinutesAgo.toISOString();
-
-    const response = await databases.listDocuments(databaseId, collectionId, [
-      Query.equal("status", "pending"),
-      Query.lessThan("timestamp", tenMinutesAgoStr),
-    ]);
-
-    let updatedCount = 0;
-
-    // Update each expired request
-    for (const doc of response.documents) {
-      await databases.updateDocument(databaseId, collectionId, doc.$id, {
-        status: "expired",
-      });
-      updatedCount++;
-    }
-
-    return updatedCount;
-  } catch (error) {
-    console.error("Error cleaning up expired payment requests:", error);
-    return 0;
   }
 }

@@ -30,7 +30,6 @@ export default function TripDetailsScreen() {
   const viewShotRef = useRef<any>(null)
   const [hasMediaPermission, setHasMediaPermission] = useState(false)
 
-  // Request media library permissions on component mount
   useEffect(() => {
     ; (async () => {
       const { status } = await MediaLibrary.requestPermissionsAsync()
@@ -38,7 +37,6 @@ export default function TripDetailsScreen() {
     })()
   }, [])
 
-  // Extract only the ID from params to use in the dependency array
   const tripId = params.id as string | undefined
 
   useEffect(() => {
@@ -51,11 +49,13 @@ export default function TripDetailsScreen() {
           if (details) {
             setTripDetails(details)
           } else {
-            // If no details found in the database, use the params
             setTripDetails({
               id: tripId,
               passengerName: params.passengerName,
-              fare: params.fare,
+              fare: params.fare,                       // total
+              totalFare: params.totalFare || params.fare,
+              farePerPassenger: params.farePerPassenger,
+              passengerCount: params.passengerCount,
               from: params.from,
               to: params.to,
               timestamp: Number(params.timestamp),
@@ -68,11 +68,13 @@ export default function TripDetailsScreen() {
           }
         } catch (error) {
           console.error("Error loading trip details:", error)
-          // Use params as fallback
           setTripDetails({
             id: tripId,
             passengerName: params.passengerName,
             fare: params.fare,
+            totalFare: params.totalFare || params.fare,
+            farePerPassenger: params.farePerPassenger,
+            passengerCount: params.passengerCount,
             from: params.from,
             to: params.to,
             timestamp: Number(params.timestamp),
@@ -89,16 +91,12 @@ export default function TripDetailsScreen() {
     }
 
     loadTripDetails()
-  }, [tripId]) // Only depend on tripId instead of the entire params object
+  }, [tripId])
 
-  // Capture receipt as image
   const captureReceipt = async (format: "jpg" | "png" = "jpg") => {
     try {
       if (viewShotRef.current) {
-        const uri = await viewShotRef.current.capture({
-          format: format,
-          quality: 0.9,
-        })
+        const uri = await viewShotRef.current.capture({ format, quality: 0.9 })
         setCapturedImageUri(uri)
         return uri
       }
@@ -109,7 +107,6 @@ export default function TripDetailsScreen() {
     }
   }
 
-  // Save image to gallery
   const saveToGallery = async (uri: string, format: "jpg" | "png") => {
     try {
       if (!hasMediaPermission) {
@@ -120,17 +117,10 @@ export default function TripDetailsScreen() {
         }
       }
 
-      // Create a unique filename with timestamp
       const timestamp = new Date().getTime()
       const fileUri = FileSystem.documentDirectory + `qrtransit_receipt_${timestamp}.${format}`
 
-      // Copy the file to a permanent location
-      await FileSystem.copyAsync({
-        from: uri,
-        to: fileUri,
-      })
-
-      // Save to media library
+      await FileSystem.copyAsync({ from: uri, to: fileUri })
       const asset = await MediaLibrary.createAssetAsync(fileUri)
       await MediaLibrary.createAlbumAsync("QRTransit", asset, false)
 
@@ -141,39 +131,26 @@ export default function TripDetailsScreen() {
     }
   }
 
-  // Share the receipt image - FIXED to properly share the image file
   const handleShareReceipt = async () => {
     try {
-      // Capture the receipt if not already captured
       const uri = capturedImageUri || (await captureReceipt("png"))
-
       if (!uri) {
         Alert.alert("Error", "Failed to capture receipt image")
         return
       }
 
-      // Create a temporary file with a proper extension for sharing
       const timestamp = new Date().getTime()
       const tempFilePath = FileSystem.cacheDirectory + `qrtransit_trip_${timestamp}.png`
+      await FileSystem.copyAsync({ from: uri, to: tempFilePath })
 
-      // Copy the captured image to the temp file
-      await FileSystem.copyAsync({
-        from: uri,
-        to: tempFilePath,
-      })
-
-      // Check if sharing is available
       const isAvailable = await Sharing.isAvailableAsync()
-
       if (isAvailable) {
-        // Use expo-sharing for direct file sharing (works better on both platforms)
         await Sharing.shareAsync(tempFilePath, {
           mimeType: "image/png",
           dialogTitle: "Share QRTransit Trip Details",
-          UTI: "public.png", // Uniform Type Identifier for iOS
+          UTI: "public.png",
         })
       } else {
-        // Fallback to React Native Share API
         await Share.share({
           url: tempFilePath,
           title: "QRTransit Trip Details",
@@ -186,10 +163,8 @@ export default function TripDetailsScreen() {
     }
   }
 
-  // Download the receipt image to device
   const handleDownloadReceipt = async () => {
     try {
-      // Show format selection dialog
       Alert.alert("Save Receipt", "Choose image format", [
         {
           text: "JPG",
@@ -197,11 +172,7 @@ export default function TripDetailsScreen() {
             const uri = capturedImageUri || (await captureReceipt("jpg"))
             if (uri) {
               const saved = await saveToGallery(uri, "jpg")
-              if (saved) {
-                Alert.alert("Success", "Receipt saved to your gallery")
-              } else {
-                Alert.alert("Error", "Failed to save receipt to gallery")
-              }
+              Alert.alert(saved ? "Success" : "Error", saved ? "Receipt saved to your gallery" : "Failed to save")
             } else {
               Alert.alert("Error", "Failed to capture receipt image")
             }
@@ -213,11 +184,7 @@ export default function TripDetailsScreen() {
             const uri = capturedImageUri || (await captureReceipt("png"))
             if (uri) {
               const saved = await saveToGallery(uri, "png")
-              if (saved) {
-                Alert.alert("Success", "Receipt saved to your gallery")
-              } else {
-                Alert.alert("Error", "Failed to save receipt to gallery")
-              }
+              Alert.alert(saved ? "Success" : "Error", saved ? "Receipt saved to your gallery" : "Failed to save")
             } else {
               Alert.alert("Error", "Failed to capture receipt image")
             }
@@ -238,7 +205,7 @@ export default function TripDetailsScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-emerald-400">
+      <View className="items-center justify-center flex-1 bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
         <Text className="mt-4 text-white">Loading trip details...</Text>
@@ -246,16 +213,19 @@ export default function TripDetailsScreen() {
     )
   }
 
+  const passengers = Number(tripDetails?.passengerCount || 1)
+  const perPerson = String(tripDetails?.farePerPassenger || "")
+  const totalFare = String(tripDetails?.totalFare || tripDetails?.fare || "")
+
   return (
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      {/* Header with back button */}
       <View className="flex-row items-center justify-between px-4 pt-16 pb-2">
         <TouchableOpacity onPress={() => router.back()} className="p-2">
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Trip Details</Text>
+        <Text className="text-xl font-bold text-white">Trip Details</Text>
         <View className="flex-row">
           <TouchableOpacity onPress={handleDownloadReceipt} className="p-2">
             <Ionicons name="download-outline" size={24} color="white" />
@@ -267,72 +237,75 @@ export default function TripDetailsScreen() {
       </View>
 
       <ScrollView className="flex-1 px-4 pt-2">
-        <ViewShot
-          ref={viewShotRef}
-          options={{ format: "png", quality: 1 }}
-          style={{ backgroundColor: "white", borderRadius: 8 }}
-        >
-          <View className="bg-white rounded-lg p-6 mb-4">
-            <View className="flex-row justify-between items-center mb-4">
+        <ViewShot ref={viewShotRef} options={{ format: "png", quality: 1 }} style={{ backgroundColor: "white", borderRadius: 8 }}>
+          <View className="p-6 mb-4 bg-white rounded-lg">
+            <View className="flex-row items-center justify-between mb-4">
               <Text className="text-2xl font-bold text-gray-800">{tripDetails.passengerName}</Text>
-              <Text className="text-xl font-bold text-emerald-600">{tripDetails.fare}</Text>
+              <Text className="text-xl font-bold text-emerald-600">{totalFare}</Text>
             </View>
 
             <View className="mb-4">
-              <Text className="text-gray-500 mb-1">Transaction ID</Text>
-              <Text className="text-gray-800 font-medium">{tripDetails.transactionId}</Text>
+              <Text className="mb-1 text-gray-500">Transaction ID</Text>
+              <Text className="font-medium text-gray-800">{tripDetails.transactionId}</Text>
             </View>
 
             <View className="mb-4">
-              <Text className="text-gray-500 mb-1">Date & Time</Text>
-              <Text className="text-gray-800 font-medium">{formatDate(tripDetails.timestamp)}</Text>
+              <Text className="mb-1 text-gray-500">Date & Time</Text>
+              <Text className="font-medium text-gray-800">{formatDate(tripDetails.timestamp)}</Text>
             </View>
 
             <View className="flex-row mb-4">
               <View className="flex-1 mr-2">
-                <Text className="text-gray-500 mb-1">From</Text>
-                <Text className="text-gray-800 font-medium">{tripDetails.from}</Text>
+                <Text className="mb-1 text-gray-500">From</Text>
+                <Text className="font-medium text-gray-800">{tripDetails.from}</Text>
               </View>
               <View className="flex-1 ml-2">
-                <Text className="text-gray-500 mb-1">To</Text>
-                <Text className="text-gray-800 font-medium">{tripDetails.to}</Text>
+                <Text className="mb-1 text-gray-500">To</Text>
+                <Text className="font-medium text-gray-800">{tripDetails.to}</Text>
               </View>
             </View>
 
             <View className="flex-row mb-4">
               <View className="flex-1 mr-2">
-                <Text className="text-gray-500 mb-1">Payment Method</Text>
+                <Text className="mb-1 text-gray-500">Payment Method</Text>
                 <View className="flex-row items-center">
                   <Ionicons
                     name={tripDetails.paymentMethod === "QR" ? "qr-code" : "cash"}
                     size={16}
                     color="#059669"
-                    className="mr-1"
                   />
-                  <Text className="text-gray-800 font-medium">{tripDetails.paymentMethod}</Text>
+                  <Text className="font-medium text-gray-800" style={{ marginLeft: 6 }}>{tripDetails.paymentMethod}</Text>
                 </View>
               </View>
               <View className="flex-1 ml-2">
-                <Text className="text-gray-500 mb-1">Passenger Type</Text>
-                <Text className="text-gray-800 font-medium">{tripDetails.passengerType || "Regular"}</Text>
+                <Text className="mb-1 text-gray-500">Passenger Type</Text>
+                <Text className="font-medium text-gray-800">{tripDetails.passengerType || "Regular"}</Text>
+              </View>
+            </View>
+
+            {/* Group info */}
+            <View className="flex-row mb-4">
+              <View className="flex-1 mr-2">
+                <Text className="mb-1 text-gray-500">Passengers (Tickets)</Text>
+                <Text className="font-medium text-gray-800">{passengers}</Text>
+              </View>
+              <View className="flex-1 ml-2">
+                <Text className="mb-1 text-gray-500">Per-Person Fare</Text>
+                <Text className="font-medium text-gray-800">{perPerson || "—"}</Text>
               </View>
             </View>
 
             {tripDetails.kilometer && (
               <View className="mb-4">
-                <Text className="text-gray-500 mb-1">Distance</Text>
-                <Text className="text-gray-800 font-medium">{tripDetails.kilometer} km</Text>
+                <Text className="mb-1 text-gray-500">Distance</Text>
+                <Text className="font-medium text-gray-800">{tripDetails.kilometer} km</Text>
               </View>
             )}
 
             {tripDetails.passengerPhoto && (
               <View className="mt-2">
-                <Text className="text-gray-500 mb-1">Passenger Photo</Text>
-                <Image
-                  source={{ uri: tripDetails.passengerPhoto }}
-                  className="w-full h-48 rounded-lg"
-                  resizeMode="cover"
-                />
+                <Text className="mb-1 text-gray-500">Passenger Photo</Text>
+                <Image source={{ uri: tripDetails.passengerPhoto }} className="w-full h-48 rounded-lg" resizeMode="cover" />
               </View>
             )}
           </View>
@@ -341,4 +314,3 @@ export default function TripDetailsScreen() {
     </View>
   )
 }
-
