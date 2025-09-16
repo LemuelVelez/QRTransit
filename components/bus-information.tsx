@@ -1,3 +1,4 @@
+// components/bus-information.tsx
 "use client"
 
 import { useEffect, useState } from "react"
@@ -10,6 +11,7 @@ interface BusInformationProps {
     to: string
     busNumber: string
     conductorId: string
+    busType?: string
   }
 }
 
@@ -35,8 +37,8 @@ const BusInformation = ({ route }: BusInformationProps) => {
   }, [route.conductorId])
 
   return (
-    <View className="bg-white p-4 rounded-lg shadow-sm mb-4">
-      <Text className="text-lg font-bold mb-2">Bus Information</Text>
+    <View className="p-4 mb-4 bg-white rounded-lg shadow-sm">
+      <Text className="mb-2 text-lg font-bold">Bus Information</Text>
       <View className="flex-row justify-between mb-1">
         <Text className="text-gray-600">Route:</Text>
         <Text className="font-medium">
@@ -47,6 +49,10 @@ const BusInformation = ({ route }: BusInformationProps) => {
         <Text className="text-gray-600">Bus Number:</Text>
         <Text className="font-medium">{route.busNumber}</Text>
       </View>
+      <View className="flex-row justify-between mb-1">
+        <Text className="text-gray-600">Bus Type:</Text>
+        <Text className="font-medium">{route.busType || "Regular"}</Text>
+      </View>
       <View className="flex-row justify-between">
         <Text className="text-gray-600">Conductor:</Text>
         <Text className="font-medium">{conductorName}</Text>
@@ -56,4 +62,3 @@ const BusInformation = ({ route }: BusInformationProps) => {
 }
 
 export default BusInformation
-

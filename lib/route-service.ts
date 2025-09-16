@@ -1,3 +1,4 @@
+// lib/route-service.ts
 import { ID, Query } from "react-native-appwrite";
 import { databases, config } from "./appwrite";
 
@@ -9,7 +10,8 @@ export interface RouteInfo {
   timestamp: number;
   active?: boolean;
   endTimestamp?: number;
-  conductorName?: string; // Added conductorName field
+  conductorName?: string; // optional display-only
+  busType?: string; // ✅ NEW: add busType to the model
 }
 
 // Get the collection ID for routes
@@ -21,7 +23,7 @@ const getRoutesCollectionId = () => {
 export async function saveRouteInfo(
   conductorId: string,
   routeInfo: RouteInfo,
-  conductorName?: string // Added conductorName parameter
+  conductorName?: string
 ): Promise<string> {
   try {
     const databaseId = config.databaseId;
@@ -40,9 +42,10 @@ export async function saveRouteInfo(
         from: routeInfo.from,
         to: routeInfo.to,
         busNumber: routeInfo.busNumber,
+        busType: routeInfo.busType || "Regular", // ✅ persist busType
         timestamp: routeInfo.timestamp.toString(),
-        active: routeInfo.active === true, // Ensure boolean value
-        conductorName: conductorName || "", // Include conductorName
+        active: routeInfo.active === true,
+        conductorName: conductorName || "",
       }
     );
 
@@ -68,8 +71,8 @@ export async function getActiveRoute(
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.equal("active", true),
-      Query.orderDesc("timestamp"), // Order by timestamp descending to get the latest
-      Query.limit(1), // Limit to 1 result
+      Query.orderDesc("timestamp"),
+      Query.limit(1),
     ]);
 
     if (response.documents.length === 0) {
@@ -82,9 +85,10 @@ export async function getActiveRoute(
       from: route.from,
       to: route.to,
       busNumber: route.busNumber,
+      busType: route.busType || "Regular", // ✅ map busType
       timestamp: Number.parseInt(route.timestamp),
-      active: route.active === true, // Ensure boolean value
-      conductorName: route.conductorName || "", // Include conductorName
+      active: route.active === true,
+      conductorName: route.conductorName || "",
     };
   } catch (error) {
     console.error("Error getting active route:", error);
@@ -122,7 +126,6 @@ export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
 
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
-      return [];
     }
 
     const response = await databases.listDocuments(databaseId, collectionId, [
@@ -130,17 +133,18 @@ export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((route) => ({
+    return response.documents.map((route: any) => ({
       id: route.$id,
       from: route.from,
       to: route.to,
       busNumber: route.busNumber,
+      busType: route.busType || "Regular", // ✅ map busType
       timestamp: Number.parseInt(route.timestamp),
-      active: route.active === true, // Ensure boolean value
+      active: route.active === true,
       endTimestamp: route.endTimestamp
         ? Number.parseInt(route.endTimestamp)
         : undefined,
-      conductorName: route.conductorName || "", // Include conductorName
+      conductorName: route.conductorName || "",
     }));
   } catch (error) {
     console.error("Error getting all routes:", error);
@@ -167,13 +171,13 @@ export async function updateRoute(
     if (updates.to !== undefined) updateData.to = updates.to;
     if (updates.busNumber !== undefined)
       updateData.busNumber = updates.busNumber;
+    if (updates.busType !== undefined) updateData.busType = updates.busType; // ✅ allow busType patches
     if (updates.conductorName !== undefined)
       updateData.conductorName = updates.conductorName;
 
     // Explicitly handle the active field as a boolean
     if (updates.active !== undefined) {
       updateData.active = updates.active === true;
-      console.log("Setting active status to:", updateData.active);
     }
 
     await databases.updateDocument(

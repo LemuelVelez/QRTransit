@@ -1,226 +1,210 @@
-import { databases, config } from "./appwrite";
+// lib/discount-service.ts
 import { ID, Query } from "react-native-appwrite";
+import { databases, config } from "./appwrite";
 
 export interface DiscountConfig {
   id?: string;
-  passengerType: string;
-  busType: string;
-  discountPercentage: number;
+  passengerType: string; // e.g., "Regular", "Student", "Senior", "PWD"
+  busType: string; // e.g., "Regular", "Aircon", "Deluxe"
+  discountPercentage: number; // 0..100
   description?: string;
   active: boolean;
-  createdAt?: number;
+  createdAt?: string;
 }
 
-// Get the discounts collection ID with fallback
-function getDiscountsCollectionId(): string {
-  // Try to get from environment variable first
-  const envCollectionId =
-    process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID;
+const getCollectionId = () =>
+  process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID || "";
 
-  // If environment variable is set, use it
-  if (envCollectionId) {
-    return envCollectionId;
-  }
-
-  // If config has it, use that
-  if (config.discountsCollectionId) {
-    return config.discountsCollectionId;
-  }
-
-  // Fallback to hardcoded value
-  return "discounts";
-}
-
-// Get all discount configurations
+// ---------- CRUD ----------
 export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = config.databaseId!;
+    const collectionId = getCollectionId();
+    if (!databaseId || !collectionId) return [];
 
-    if (!databaseId) {
-      console.error("Database ID is missing");
-      return [];
-    }
-
-    const collectionId = getDiscountsCollectionId();
-
-    try {
-      // Get discounts from the database
-      const response = await databases.listDocuments(databaseId, collectionId, [
-        Query.orderAsc("passengerType"),
-      ]);
-
-      return response.documents.map((doc) => ({
-        id: doc.$id,
-        passengerType: doc.passengerType,
-        busType: doc.busType || "Regular",
-        discountPercentage: Number(doc.discountPercentage),
-        description: doc.description,
-        active: doc.active === true,
-        createdAt: doc.$createdAt
-          ? new Date(doc.$createdAt).getTime()
-          : undefined,
-      }));
-    } catch (error) {
-      console.error("Error fetching discounts:", error);
-      return [];
-    }
-  } catch (error) {
-    console.error("Error in getDiscountConfigurations:", error);
+    const res = await databases.listDocuments(databaseId, collectionId, []);
+    return res.documents.map((doc: any) => ({
+      id: doc.$id,
+      passengerType: doc.passengerType,
+      busType: doc.busType,
+      discountPercentage: Number(doc.discountPercentage) || 0,
+      description: doc.description || "",
+      active: !!doc.active,
+      createdAt: doc.$createdAt,
+    }));
+  } catch (e) {
+    console.error("getDiscountConfigurations error:", e);
     return [];
   }
 }
 
-export async function getBusTypeConfigurations(): Promise<DiscountConfig[]> {
-  try {
-    const allConfigs = await getDiscountConfigurations();
-    // Get unique bus types
-    const uniqueBusTypes = new Map<string, DiscountConfig>();
-
-    allConfigs.forEach((config) => {
-      if (!uniqueBusTypes.has(config.busType)) {
-        uniqueBusTypes.set(config.busType, config);
-      }
-    });
-
-    return Array.from(uniqueBusTypes.values());
-  } catch (error) {
-    console.error("Error in getBusTypeConfigurations:", error);
-    return [];
-  }
-}
-
-// Save a discount configuration
 export async function saveDiscountConfiguration(
-  discount: Omit<DiscountConfig, "id" | "createdAt">
+  data: Omit<DiscountConfig, "id" | "createdAt">
 ): Promise<string | null> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = config.databaseId!;
+    const collectionId = getCollectionId();
+    if (!databaseId || !collectionId) return null;
 
-    if (!databaseId) {
-      console.error("Database ID is missing");
-      return null;
-    }
+    const payload = {
+      passengerType: data.passengerType,
+      busType: data.busType,
+      discountPercentage: Number(data.discountPercentage) || 0,
+      description: data.description || "",
+      active: !!data.active,
+    };
 
-    const collectionId = getDiscountsCollectionId();
-
-    const result = await databases.createDocument(
+    const res = await databases.createDocument(
       databaseId,
       collectionId,
       ID.unique(),
-      {
-        passengerType: discount.passengerType,
-        busType: discount.busType,
-        discountPercentage: discount.discountPercentage.toString(),
-        description: discount.description || "",
-        active: discount.active,
-        // Removed createdBy field as it's causing issues
-        // Appwrite will automatically add $createdAt
-      }
+      payload
     );
-
-    return result.$id;
-  } catch (error) {
-    console.error("Error saving discount configuration:", error);
+    return res.$id || null;
+  } catch (e) {
+    console.error("saveDiscountConfiguration error:", e);
     return null;
   }
 }
 
-// Update a discount configuration
 export async function updateDiscountConfiguration(
   id: string,
-  updates: Partial<Omit<DiscountConfig, "id" | "createdAt">>
+  data: Partial<Omit<DiscountConfig, "id" | "createdAt">>
 ): Promise<boolean> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = config.databaseId!;
+    const collectionId = getCollectionId();
+    if (!databaseId || !collectionId) return false;
 
-    if (!databaseId) {
-      console.error("Database ID is missing");
-      return false;
-    }
+    const payload: any = {};
+    if (data.passengerType !== undefined)
+      payload.passengerType = data.passengerType;
+    if (data.busType !== undefined) payload.busType = data.busType;
+    if (data.discountPercentage !== undefined)
+      payload.discountPercentage = Number(data.discountPercentage) || 0;
+    if (data.description !== undefined) payload.description = data.description;
+    if (data.active !== undefined) payload.active = !!data.active;
 
-    const collectionId = getDiscountsCollectionId();
-
-    const updateData: Record<string, any> = {};
-    if (updates.passengerType !== undefined)
-      updateData.passengerType = updates.passengerType;
-    if (updates.busType !== undefined) updateData.busType = updates.busType;
-    if (updates.discountPercentage !== undefined)
-      updateData.discountPercentage = updates.discountPercentage.toString();
-    if (updates.description !== undefined)
-      updateData.description = updates.description;
-    if (updates.active !== undefined) updateData.active = updates.active;
-
-    await databases.updateDocument(databaseId, collectionId, id, updateData);
+    await databases.updateDocument(databaseId, collectionId, id, payload);
     return true;
-  } catch (error) {
-    console.error("Error updating discount configuration:", error);
+  } catch (e) {
+    console.error("updateDiscountConfiguration error:", e);
     return false;
   }
 }
 
-// Delete a discount configuration
 export async function deleteDiscountConfiguration(
   id: string
 ): Promise<boolean> {
   try {
-    const databaseId = config.databaseId;
-
-    if (!databaseId) {
-      console.error("Database ID is missing");
-      return false;
-    }
-
-    const collectionId = getDiscountsCollectionId();
-
+    const databaseId = config.databaseId!;
+    const collectionId = getCollectionId();
+    if (!databaseId || !collectionId) return false;
     await databases.deleteDocument(databaseId, collectionId, id);
     return true;
-  } catch (error) {
-    console.error("Error deleting discount configuration:", error);
+  } catch (e) {
+    console.error("deleteDiscountConfiguration error:", e);
     return false;
   }
 }
 
+// ---------- Queries / Helpers ----------
+
+/**
+ * Get discount percentage for a (passengerType, busType) combination.
+ * Fallback order:
+ *  1) exact (passengerType + busType)
+ *  2) passengerType with "Any" busType
+ *  3) "Regular" passengerType with exact busType
+ *  4) no discount (0)
+ */
 export async function getDiscountPercentage(
   passengerType: string,
-  busType = "Regular"
+  busType?: string
 ): Promise<number> {
-  try {
-    const discounts = await getDiscountConfigurations();
-    const discount = discounts.find(
-      (d) =>
-        d.passengerType === passengerType && d.busType === busType && d.active
-    );
-    return discount ? discount.discountPercentage : 0;
-  } catch (error) {
-    console.error("Error getting discount percentage:", error);
-    return 0; // No discount if there's an error
-  }
+  const all = await getDiscountConfigurations();
+  const bt = busType || "Regular";
+
+  // 1) exact
+  const exact = all.find(
+    (d) => d.active && eq(d.passengerType, passengerType) && eq(d.busType, bt)
+  );
+  if (exact) return clampPct(exact.discountPercentage);
+
+  // 2) passengerType + Any
+  const any = all.find(
+    (d) => d.active && eq(d.passengerType, passengerType) && isAny(d.busType)
+  );
+  if (any) return clampPct(any.discountPercentage);
+
+  // 3) fallback Regular + exact busType
+  const fallback = all.find(
+    (d) => d.active && eq(d.passengerType, "Regular") && eq(d.busType, bt)
+  );
+  if (fallback) return clampPct(fallback.discountPercentage);
+
+  return 0;
 }
 
+/**
+ * Returns a de-duplicated list of bus types with an overall active flag.
+ * The "active" is true if there exists at least one active discount document for that busType.
+ */
+export async function getBusTypeConfigurations(): Promise<
+  Array<{ busType: string; active: boolean }>
+> {
+  const all = await getDiscountConfigurations();
+  const map: Record<string, boolean> = {};
+  for (const d of all) {
+    const key = (d.busType || "Regular").trim();
+    if (!map[key]) map[key] = false;
+    // mark active if any active doc uses this busType
+    if (d.active) map[key] = true;
+  }
+  // Ensure at least "Regular" exists
+  if (!("Regular" in map)) map["Regular"] = true;
+  return Object.keys(map).map((k) => ({ busType: k, active: map[k] }));
+}
+
+/**
+ * Multiplier to uplift fares by bus type.
+ * Tries to infer from special docs where passengerType === "BASE" (optional),
+ * otherwise falls back to a constant mapping.
+ *
+ * Example (optional) document for Aircon uplift:
+ *   { passengerType: "BASE", busType: "Aircon", discountPercentage: 20, active: true }
+ * which means +20% uplift for Aircon.
+ */
 export async function getBusTypeFareMultiplier(
   busType: string
 ): Promise<number> {
-  try {
-    const discounts = await getDiscountConfigurations();
-    const busTypeConfig = discounts.find(
-      (d) => d.busType === busType && d.active
-    );
+  const FALLBACK: Record<string, number> = {
+    Regular: 1.0,
+    Aircon: 1.2, // +20%
+    Deluxe: 1.35, // +35%
+    Premium: 1.5, // +50%
+  };
 
-    // Return fare multiplier based on bus type
-    // This can be configured in the discount system
-    // For example: Regular = 1.0, Aircon = 1.2, Deluxe = 1.5
-    switch (busType.toLowerCase()) {
-      case "aircon":
-        return 1.2; // 20% more expensive
-      case "deluxe":
-        return 1.5; // 50% more expensive
-      case "premium":
-        return 1.8; // 80% more expensive
-      default:
-        return 1.0; // Regular fare
+  const bt = (busType || "Regular").trim();
+  try {
+    const all = await getDiscountConfigurations();
+    // Look for a "BASE" rule for this busType
+    const base = all.find(
+      (d) => d.active && eq(d.passengerType, "BASE") && eq(d.busType, bt)
+    );
+    if (base) {
+      const upliftPct = clampPct(base.discountPercentage); // interpret as uplift percent
+      return 1 + upliftPct / 100;
     }
-  } catch (error) {
-    console.error("Error getting bus type fare multiplier:", error);
-    return 1.0; // Default to regular fare
+  } catch (e) {
+    console.warn("getBusTypeFareMultiplier fallback:", e);
   }
+  return FALLBACK[bt] ?? 1.0;
 }
+
+// ---------- utils ----------
+const eq = (a?: string, b?: string) =>
+  (a || "").toLowerCase().trim() === (b || "").toLowerCase().trim();
+const isAny = (v?: string) =>
+  ["*", "any", "all"].includes((v || "").toLowerCase().trim());
+const clampPct = (n: number) => Math.max(0, Math.min(100, Number(n) || 0));

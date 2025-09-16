@@ -1,3 +1,4 @@
+// lib/appwrite-payment-service.ts
 import { ID, Query } from "react-native-appwrite";
 import { databases, config, client } from "./appwrite";
 
@@ -18,6 +19,7 @@ export interface PaymentRequest {
   status: "pending" | "approved" | "declined" | "completed" | "expired";
   transactionId?: string;
   busNumber?: string;
+  busType?: string; // NEW
   // NEW
   ticketCount?: number;
   farePerPassenger?: string;
@@ -34,6 +36,7 @@ export async function createPaymentRequest(
   from: string,
   to: string,
   busNumber?: string,
+  busType?: string, // NEW
   ticketCount?: number,
   farePerPassenger?: string
 ): Promise<PaymentRequest> {
@@ -60,6 +63,7 @@ export async function createPaymentRequest(
       timestamp,
       status: "pending",
       busNumber: busNumber || "",
+      busType: busType || "Regular",
     };
 
     const response = await databases.createDocument(
@@ -82,7 +86,7 @@ export async function createPaymentRequest(
       status: response.status,
       transactionId: response.transactionId,
       busNumber: response.busNumber,
-      // NEW fields back
+      busType: response.busType,
       ticketCount: Number(response.ticketCount || 1),
       farePerPassenger: response.farePerPassenger || "",
       totalFare: response.totalFare || response.fare,
@@ -141,7 +145,7 @@ export async function getPaymentRequests(
       queries
     );
 
-    return response.documents.map((doc) => ({
+    return response.documents.map((doc: any) => ({
       id: doc.$id,
       conductorId: doc.conductorId,
       conductorName: doc.conductorName,
@@ -154,6 +158,7 @@ export async function getPaymentRequests(
       status: doc.status,
       transactionId: doc.transactionId,
       busNumber: doc.busNumber,
+      busType: doc.busType,
       ticketCount: Number(doc.ticketCount || 1),
       farePerPassenger: doc.farePerPassenger || "",
       totalFare: doc.totalFare || doc.fare,
@@ -173,7 +178,7 @@ export async function getPaymentRequest(
     if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
 
-    const doc = await databases.getDocument(
+    const doc: any = await databases.getDocument(
       databaseId,
       collectionId,
       requestId
@@ -192,6 +197,7 @@ export async function getPaymentRequest(
       status: doc.status,
       transactionId: doc.transactionId,
       busNumber: doc.busNumber,
+      busType: doc.busType,
       ticketCount: Number(doc.ticketCount || 1),
       farePerPassenger: doc.farePerPassenger || "",
       totalFare: doc.totalFare || doc.fare,
@@ -239,6 +245,7 @@ export function subscribeToPaymentRequests(
           status: document.status,
           transactionId: document.transactionId,
           busNumber: document.busNumber,
+          busType: document.busType,
           ticketCount: Number(document.ticketCount || 1),
           farePerPassenger: document.farePerPassenger || "",
           totalFare: document.totalFare || document.fare,

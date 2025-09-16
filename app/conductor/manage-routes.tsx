@@ -1,3 +1,4 @@
+// app/conductor/manage-routes.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -82,24 +83,16 @@ export default function ManageRoutesScreen() {
             }
 
             setLoading(true)
-
-            // Toggle the active status
             const newActiveStatus = !(route.active === true)
-
-            console.log(`Toggling route ${route.id} active status from ${route.active} to ${newActiveStatus}`)
 
             const success = await updateRoute(route.id, {
                 active: newActiveStatus,
             })
 
             if (success) {
-                // Update the route in the state
                 const updatedRoutes = routes.map((r) => (r.id === route.id ? { ...r, active: newActiveStatus } : r))
                 setRoutes(updatedRoutes)
-
                 Alert.alert("Success", `Route ${newActiveStatus ? "activated" : "deactivated"} successfully`)
-
-                // Refresh routes to ensure we have the latest data
                 await loadRoutes(conductorId)
             } else {
                 Alert.alert("Error", "Failed to update route status")
@@ -129,7 +122,6 @@ export default function ManageRoutesScreen() {
                         const success = await deleteRoute(route.id)
 
                         if (success) {
-                            // Remove the deleted route from the state
                             setRoutes(routes.filter((r) => r.id !== route.id))
                             Alert.alert("Success", "Route deleted successfully")
                         } else {
@@ -158,16 +150,14 @@ export default function ManageRoutesScreen() {
                 from: updatedRoute.from,
                 to: updatedRoute.to,
                 busNumber: updatedRoute.busNumber,
+                busType: updatedRoute.busType, // typed in RouteInfo & supported in route-service
                 active: updatedRoute.active,
             })
 
             if (success) {
-                // Update the route in the state
                 setRoutes(routes.map((r) => (r.id === updatedRoute.id ? updatedRoute : r)))
                 setShowEditModal(false)
                 Alert.alert("Success", "Route updated successfully")
-
-                // Refresh routes to ensure we have the latest data
                 await loadRoutes(conductorId)
             } else {
                 Alert.alert("Error", "Failed to update route")
@@ -192,7 +182,7 @@ export default function ManageRoutesScreen() {
 
     if (loading) {
         return (
-            <View className="flex-1 justify-center items-center bg-emerald-400">
+            <View className="items-center justify-center flex-1 bg-emerald-400">
                 <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
                 <ActivityIndicator size="large" color="white" />
                 <Text className="mt-4 text-white">Loading routes...</Text>
@@ -208,7 +198,7 @@ export default function ManageRoutesScreen() {
                 <TouchableOpacity onPress={() => router.back()} className="p-2">
                     <Ionicons name="arrow-back" size={24} color="white" />
                 </TouchableOpacity>
-                <Text className="text-white text-xl font-bold">Manage Routes</Text>
+                <Text className="text-xl font-bold text-white">Manage Routes</Text>
                 <View style={{ width: 32 }} />
             </View>
 
@@ -217,20 +207,20 @@ export default function ManageRoutesScreen() {
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={["#059669"]} />}
             >
                 {routes.length === 0 ? (
-                    <View className="bg-white rounded-lg p-6 items-center justify-center my-4">
+                    <View className="items-center justify-center p-6 my-4 bg-white rounded-lg">
                         <Ionicons name="bus-outline" size={48} color="#059669" />
-                        <Text className="text-gray-700 text-lg mt-4 text-center">You haven't set up any routes yet</Text>
+                        <Text className="mt-4 text-lg text-center text-gray-700">You haven't set up any routes yet</Text>
                         <TouchableOpacity
-                            className="mt-4 bg-emerald-500 py-3 px-6 rounded-lg"
+                            className="px-6 py-3 mt-4 rounded-lg bg-emerald-500"
                             onPress={() => router.push("/conductor/route-setup" as any)}
                         >
-                            <Text className="text-white font-bold">Set Up a Route</Text>
+                            <Text className="font-bold text-white">Set Up a Route</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
                     routes.map((route, index) => (
-                        <View key={route.id || index} className="bg-white rounded-lg p-4 mb-4 shadow-sm">
-                            <View className="flex-row justify-between items-center mb-2">
+                        <View key={route.id || index} className="p-4 mb-4 bg-white rounded-lg shadow-sm">
+                            <View className="flex-row items-center justify-between mb-2">
                                 <View className="flex-row items-center">
                                     <Switch
                                         value={route.active === true}
@@ -241,18 +231,18 @@ export default function ManageRoutesScreen() {
                                     />
                                     <Text className="ml-2 text-gray-500">{route.active === true ? "Active" : "Inactive"}</Text>
                                 </View>
-                                <Text className="text-gray-500 text-xs">{formatDate(route.timestamp)}</Text>
+                                <Text className="text-xs text-gray-500">{formatDate(route.timestamp)}</Text>
                             </View>
 
                             <View className="mb-3">
                                 <Text className="text-lg font-bold text-gray-800">
                                     {route.from} → {route.to}
                                 </Text>
-                                <Text className="text-gray-600">Bus #{route.busNumber}</Text>
+                                <Text className="text-gray-600">Bus #{route.busNumber} • {route.busType || "Regular"}</Text>
                             </View>
 
                             <View className="flex-row justify-end">
-                                <TouchableOpacity className="mr-3 flex-row items-center" onPress={() => handleEditRoute(route)}>
+                                <TouchableOpacity className="flex-row items-center mr-3" onPress={() => handleEditRoute(route)}>
                                     <Ionicons name="create-outline" size={18} color="#059669" />
                                     <Text className="ml-1 text-emerald-600">Edit</Text>
                                 </TouchableOpacity>
@@ -269,7 +259,7 @@ export default function ManageRoutesScreen() {
 
             {/* Add Route Button */}
             <TouchableOpacity
-                className="absolute bottom-6 right-6 bg-emerald-600 w-14 h-14 rounded-full items-center justify-center shadow-lg"
+                className="absolute items-center justify-center rounded-full shadow-lg bottom-6 right-6 bg-emerald-600 w-14 h-14"
                 onPress={() => router.push("/conductor/route-setup" as any)}
             >
                 <Ionicons name="add" size={30} color="white" />
@@ -287,4 +277,3 @@ export default function ManageRoutesScreen() {
         </View>
     )
 }
-
