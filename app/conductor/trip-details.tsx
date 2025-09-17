@@ -30,6 +30,10 @@ export default function TripDetailsScreen() {
   const viewShotRef = useRef<any>(null)
   const [hasMediaPermission, setHasMediaPermission] = useState(false)
 
+  // Helpers (mirror conductor helpers)
+  const parseCurrencyToNumber = (s: string) => Number(String(s).replace(/[^\d.]/g, "")) || 0
+  const formatCurrency = (n: number) => `₱${n.toFixed(2)}`
+
   useEffect(() => {
     ; (async () => {
       const { status } = await MediaLibrary.requestPermissionsAsync()
@@ -37,56 +41,112 @@ export default function TripDetailsScreen() {
     })()
   }, [])
 
-  const tripId = params.id as string | undefined
+  // Accept either ?id=... or ?receiptId=... for robustness
+  const tripId =
+    (params.id as string | undefined) ||
+    (params.receiptId as string | undefined)
+
+  const coerceMillis = (v: any): number => {
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) return v
+    const n = Number(v)
+    if (Number.isFinite(n) && n > 0) return n
+    const p = Date.parse(String(v))
+    return Number.isFinite(p) ? p : Date.now()
+  }
+
+  // Normalize and derive values (particularly totalPassengers -> per-person)
+  const normalizeTrip = (base: any) => {
+    const passengersRaw =
+      base?.totalPassengers ??
+      base?.passengerCount ??
+      params.totalPassengers ??
+      params.passengerCount ??
+      "1"
+    const passengers = Math.max(1, Number(passengersRaw) || 1)
+
+    const totalFareStr =
+      String(
+        base?.totalFare ??
+        base?.fare ??
+        params.totalFare ??
+        params.fare ??
+        "₱0.00"
+      )
+
+    let farePerPassengerStr =
+      base?.farePerPassenger ??
+      params.farePerPassenger
+
+    if (!farePerPassengerStr || String(farePerPassengerStr).trim() === "") {
+      const total = parseCurrencyToNumber(totalFareStr)
+      farePerPassengerStr = formatCurrency(total / passengers)
+    }
+
+    return {
+      ...base,
+      // keep both fields, but totalPassengers is the source of truth
+      totalPassengers: String(passengers),
+      passengerCount: String(passengers),
+      totalFare: totalFareStr,
+      fare: base?.fare ?? totalFareStr,
+      farePerPassenger: farePerPassengerStr,
+    }
+  }
 
   useEffect(() => {
     async function loadTripDetails() {
-      if (tripId) {
-        try {
-          setLoading(true)
-          const details = await getTripDetails(tripId)
+      if (!tripId) return
+      try {
+        setLoading(true)
+        const details = await getTripDetails(tripId)
 
-          if (details) {
-            setTripDetails(details)
-          } else {
-            setTripDetails({
-              id: tripId,
-              passengerName: params.passengerName,
-              fare: params.fare,                       // total
-              totalFare: params.totalFare || params.fare,
-              farePerPassenger: params.farePerPassenger,
-              passengerCount: params.passengerCount,
-              from: params.from,
-              to: params.to,
-              timestamp: Number(params.timestamp),
-              paymentMethod: params.paymentMethod,
-              transactionId: params.transactionId,
-              passengerPhoto: params.passengerPhoto,
-              passengerType: params.passengerType,
-              kilometer: params.kilometer,
-            })
-          }
-        } catch (error) {
-          console.error("Error loading trip details:", error)
-          setTripDetails({
+        if (details) {
+          setTripDetails(normalizeTrip(details))
+        } else {
+          // Fallback to params if doc isn't found (e.g., schema lag during save)
+          const fallback = {
             id: tripId,
             passengerName: params.passengerName,
-            fare: params.fare,
+            fare: params.fare, // total
             totalFare: params.totalFare || params.fare,
             farePerPassenger: params.farePerPassenger,
             passengerCount: params.passengerCount,
+            totalPassengers: params.totalPassengers,
             from: params.from,
             to: params.to,
-            timestamp: Number(params.timestamp),
+            timestamp: coerceMillis(params.timestamp),
             paymentMethod: params.paymentMethod,
             transactionId: params.transactionId,
             passengerPhoto: params.passengerPhoto,
             passengerType: params.passengerType,
             kilometer: params.kilometer,
-          })
-        } finally {
-          setLoading(false)
+            busNumber: params.busNumber,
+          }
+          setTripDetails(normalizeTrip(fallback))
         }
+      } catch (e) {
+        console.error("Error loading trip details:", e)
+        const fallback = {
+          id: tripId,
+          passengerName: params.passengerName,
+          fare: params.fare,
+          totalFare: params.totalFare || params.fare,
+          farePerPassenger: params.farePerPassenger,
+          passengerCount: params.passengerCount,
+          totalPassengers: params.totalPassengers,
+          from: params.from,
+          to: params.to,
+          timestamp: coerceMillis(params.timestamp),
+          paymentMethod: params.paymentMethod,
+          transactionId: params.transactionId,
+          passengerPhoto: params.passengerPhoto,
+          passengerType: params.passengerType,
+          kilometer: params.kilometer,
+          busNumber: params.busNumber,
+        }
+        setTripDetails(normalizeTrip(fallback))
+      } finally {
+        setLoading(false)
       }
     }
 
@@ -165,7 +225,7 @@ export default function TripDetailsScreen() {
 
   const handleDownloadReceipt = async () => {
     try {
-      Alert.alert("Save Receipt", "Choose image format", [
+      Alert.alert("Save Trip Details", "Choose image format", [
         {
           text: "JPG",
           onPress: async () => {
@@ -198,9 +258,10 @@ export default function TripDetailsScreen() {
     }
   }
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp)
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString()
+  const formatDate = (ts: number) => {
+    const d = new Date(ts)
+    if (isNaN(d.getTime())) return "-"
+    return d.toLocaleDateString() + " " + d.toLocaleTimeString()
   }
 
   if (loading) {
@@ -213,9 +274,9 @@ export default function TripDetailsScreen() {
     )
   }
 
-  const passengers = Number(tripDetails?.passengerCount || 1)
+  const passengers = Number(tripDetails?.totalPassengers || tripDetails?.passengerCount || 1)
   const perPerson = String(tripDetails?.farePerPassenger || "")
-  const totalFare = String(tripDetails?.totalFare || tripDetails?.fare || "")
+  const totalFare = String(tripDetails?.totalFare || tripDetails?.fare || "₱0.00")
 
   return (
     <View className="flex-1 bg-emerald-400">
@@ -299,6 +360,13 @@ export default function TripDetailsScreen() {
               <View className="mb-4">
                 <Text className="mb-1 text-gray-500">Distance</Text>
                 <Text className="font-medium text-gray-800">{tripDetails.kilometer} km</Text>
+              </View>
+            )}
+
+            {tripDetails.busNumber && (
+              <View className="mb-4">
+                <Text className="mb-1 text-gray-500">Bus #</Text>
+                <Text className="font-medium text-gray-800">{tripDetails.busNumber}</Text>
               </View>
             )}
 

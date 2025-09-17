@@ -15,29 +15,91 @@ export interface Trip {
   passengerType?: string;
   kilometer?: string;
   totalTrips?: string;
-  totalPassengers?: string;
+  totalPassengers?: string; // source of truth for group size
   busNumber?: string;
 
-  // NEW
-  passengerCount?: string; // store as string in Appwrite
+  // Back-compat + explicit fields
+  passengerCount?: string; // kept for backward compatibility
   farePerPassenger?: string;
   totalFare?: string; // explicit total
 }
 
-const getTripsCollectionId = () => {
-  return process.env.EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID || "";
-};
+// Helpers to read env/config safely
+const getTripsCollectionId = (): string =>
+  (process.env.EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID as
+    | string
+    | undefined) ?? "";
+
+const getDatabaseId = (): string =>
+  (config.databaseId as string | undefined) ?? "";
 
 export function generateTripId(): string {
   return Math.floor(1000000000 + Math.random() * 9000000000).toString();
 }
 
+// ---- helpers ----
+const safeParseTimestamp = (v: any): number => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 0) return n;
+  const p = Date.parse(String(v));
+  return Number.isFinite(p) ? p : Date.now();
+};
+
+// Attempt create; if Appwrite complains about an unknown attribute, strip it and retry.
+async function createDocumentWithSchemaFallback(
+  databaseId: string,
+  collectionId: string,
+  payload: Record<string, any>,
+  maxStrips = 5
+): Promise<string> {
+  let data = { ...payload };
+  for (let i = 0; i < maxStrips; i++) {
+    try {
+      const res = await databases.createDocument(
+        databaseId,
+        collectionId,
+        ID.unique(),
+        data
+      );
+      return res.$id;
+    } catch (err) {
+      // ✅ Safely extract error message without assuming shape
+      let msg = "";
+      if (typeof err === "object" && err !== null && "message" in err) {
+        msg = String((err as any).message);
+      } else {
+        msg = String(err);
+      }
+
+      const match = msg.match(/Unknown attribute:\s*"([^"]+)"/);
+      if (match) {
+        const badKey = match[1];
+        if (Object.prototype.hasOwnProperty.call(data, badKey)) {
+          delete (data as any)[badKey];
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+  const res = await databases.createDocument(
+    databaseId,
+    collectionId,
+    ID.unique(),
+    {}
+  );
+  return res.$id;
+}
+
 export async function getTripHistory(conductorId: string): Promise<Trip[]> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = getDatabaseId();
     const collectionId = getTripsCollectionId();
-    if (!databaseId || !collectionId) {
-      throw new Error("Appwrite configuration missing");
+    if (databaseId === "" || collectionId === "") {
+      throw new Error(
+        "Appwrite configuration missing (check EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID and databaseId)"
+      );
     }
 
     const response = await databases.listDocuments(databaseId, collectionId, [
@@ -45,25 +107,36 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
-      id: doc.$id,
-      passengerName: doc.passengerName || "Unknown Passenger",
-      fare: doc.fare || "₱0.00",
-      totalFare: doc.totalFare || doc.fare,
-      farePerPassenger: doc.farePerPassenger,
-      passengerCount: doc.passengerCount,
-      from: doc.from || "Unknown",
-      to: doc.to || "Unknown",
-      timestamp: Number.parseInt(doc.timestamp) || Date.now(),
-      paymentMethod: doc.paymentMethod || "QR",
-      transactionId: doc.transactionId || "0000000000",
-      conductorId: doc.conductorId,
-      passengerPhoto: doc.passengerPhoto,
-      passengerType: doc.passengerType,
-      kilometer: doc.kilometer,
-      totalTrips: doc.totalTrips,
-      busNumber: doc.busNumber,
-    }));
+    return response.documents.map((doc: any) => {
+      // Prefer totalPassengers; fall back to passengerCount; if both missing/empty, use "1"
+      const tpRaw = (doc.totalPassengers ?? doc.passengerCount) as
+        | string
+        | undefined;
+      const totalPassengers =
+        tpRaw && String(tpRaw).trim() !== "" ? String(tpRaw) : "1";
+
+      return {
+        id: doc.$id,
+        passengerName: doc.passengerName ?? "Unknown Passenger",
+        fare: doc.fare ?? "₱0.00",
+        totalFare: doc.totalFare ?? doc.fare,
+        farePerPassenger: doc.farePerPassenger,
+        // keep both fields populated
+        totalPassengers,
+        passengerCount: totalPassengers,
+        from: doc.from ?? "Unknown",
+        to: doc.to ?? "Unknown",
+        timestamp: safeParseTimestamp(doc.timestamp),
+        paymentMethod: doc.paymentMethod ?? "QR",
+        transactionId: doc.transactionId ?? "0000000000",
+        conductorId: doc.conductorId,
+        passengerPhoto: doc.passengerPhoto,
+        passengerType: doc.passengerType,
+        kilometer: doc.kilometer,
+        totalTrips: doc.totalTrips,
+        busNumber: doc.busNumber,
+      } as Trip;
+    });
   } catch (error) {
     console.error("Error getting trip history:", error);
     return [];
@@ -72,37 +145,46 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
 
 export async function getTripDetails(tripId: string): Promise<Trip | null> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = getDatabaseId();
     const collectionId = getTripsCollectionId();
-    if (!databaseId || !collectionId) {
-      throw new Error("Appwrite configuration missing");
+    if (databaseId === "" || collectionId === "") {
+      throw new Error(
+        "Appwrite configuration missing (check EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID and databaseId)"
+      );
     }
 
-    const document = await databases.getDocument(
+    const document: any = await databases.getDocument(
       databaseId,
       collectionId,
       tripId
     );
+    const tpRaw = (document.totalPassengers ?? document.passengerCount) as
+      | string
+      | undefined;
+    const totalPassengers =
+      tpRaw && String(tpRaw).trim() !== "" ? String(tpRaw) : "1";
 
     return {
       id: document.$id,
-      passengerName: document.passengerName || "Unknown Passenger",
-      fare: document.fare || "₱0.00",
-      totalFare: document.totalFare || document.fare,
+      passengerName: document.passengerName ?? "Unknown Passenger",
+      fare: document.fare ?? "₱0.00",
+      totalFare: document.totalFare ?? document.fare,
       farePerPassenger: document.farePerPassenger,
-      passengerCount: document.passengerCount,
-      from: document.from || "Unknown",
-      to: document.to || "Unknown",
-      timestamp: Number.parseInt(document.timestamp) || Date.now(),
-      paymentMethod: document.paymentMethod || "QR",
-      transactionId: document.transactionId || "0000000000",
+      // keep both fields populated
+      totalPassengers,
+      passengerCount: totalPassengers,
+      from: document.from ?? "Unknown",
+      to: document.to ?? "Unknown",
+      timestamp: safeParseTimestamp(document.timestamp),
+      paymentMethod: document.paymentMethod ?? "QR",
+      transactionId: document.transactionId ?? "0000000000",
       conductorId: document.conductorId,
       passengerPhoto: document.passengerPhoto,
       passengerType: document.passengerType,
       kilometer: document.kilometer,
       totalTrips: document.totalTrips,
       busNumber: document.busNumber,
-    };
+    } as Trip;
   } catch (error) {
     console.error("Error getting trip details:", error);
     return null;
@@ -111,39 +193,54 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
 
 export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = getDatabaseId();
     const collectionId = getTripsCollectionId();
-    if (!databaseId || !collectionId) {
-      throw new Error("Appwrite configuration missing");
+    if (databaseId === "" || collectionId === "") {
+      throw new Error(
+        "Appwrite configuration missing (check EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID and databaseId)"
+      );
     }
 
-    const tripData = {
-      passengerName: trip.passengerName || "Unknown Passenger",
-      fare: trip.fare || trip.totalFare || "₱0.00", // keep total in legacy field
-      totalFare: trip.totalFare || trip.fare || "₱0.00",
-      farePerPassenger: trip.farePerPassenger || "",
-      passengerCount: trip.passengerCount || "1",
-      from: trip.from || "Unknown",
-      to: trip.to || "Unknown",
-      timestamp: (trip.timestamp || Date.now()).toString(),
-      paymentMethod: trip.paymentMethod || "QR",
-      transactionId: trip.transactionId || "0000000000",
+    // Use provided timestamp when meaningful; otherwise current time
+    const ts =
+      Number.isFinite(trip.timestamp) && trip.timestamp > 0
+        ? trip.timestamp
+        : Date.now();
+
+    const totalPassengers = String(
+      trip.totalPassengers ?? trip.passengerCount ?? "1"
+    );
+
+    const tripData: Record<string, any> = {
+      passengerName: trip.passengerName ?? "Unknown Passenger",
+      // keep total in legacy field "fare" for backward compatibility
+      fare: trip.fare ?? trip.totalFare ?? "₱0.00",
+      totalFare: trip.totalFare ?? trip.fare ?? "₱0.00",
+      farePerPassenger: trip.farePerPassenger ?? "",
+      // persist both fields; totalPassengers is the source of truth
+      totalPassengers,
+      passengerCount: totalPassengers,
+      from: trip.from ?? "Unknown",
+      to: trip.to ?? "Unknown",
+      // store as string to match existing schema
+      timestamp: ts.toString(),
+      paymentMethod: trip.paymentMethod ?? "QR",
+      transactionId: trip.transactionId ?? "0000000000",
       conductorId: trip.conductorId,
-      passengerPhoto: trip.passengerPhoto || "",
-      passengerType: trip.passengerType || "Regular",
-      kilometer: trip.kilometer || "0",
+      passengerPhoto: trip.passengerPhoto ?? "",
+      passengerType: trip.passengerType ?? "Regular",
+      kilometer: trip.kilometer ?? "0",
       totalTrips: "1",
-      busNumber: trip.busNumber || "",
+      busNumber: trip.busNumber ?? "",
     };
 
-    // ✅ Use a real unique id generator from the SDK
-    const result = await databases.createDocument(
+    // Create robustly, stripping unknown fields if schema lags
+    const newId = await createDocumentWithSchemaFallback(
       databaseId,
       collectionId,
-      ID.unique(),
       tripData
     );
-    return result.$id;
+    return newId;
   } catch (error) {
     console.error("Error saving trip:", error);
     return null;
@@ -156,10 +253,12 @@ export async function getTripsByDateRange(
   endDate: Date
 ): Promise<Trip[]> {
   try {
-    const databaseId = config.databaseId;
+    const databaseId = getDatabaseId();
     const collectionId = getTripsCollectionId();
-    if (!databaseId || !collectionId) {
-      throw new Error("Appwrite configuration missing");
+    if (databaseId === "" || collectionId === "") {
+      throw new Error(
+        "Appwrite configuration missing (check EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID and databaseId)"
+      );
     }
 
     const startTimestamp = startDate.getTime().toString();
@@ -172,25 +271,34 @@ export async function getTripsByDateRange(
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
-      id: doc.$id,
-      passengerName: doc.passengerName || "Unknown Passenger",
-      fare: doc.fare || "₱0.00",
-      totalFare: doc.totalFare || doc.fare,
-      farePerPassenger: doc.farePerPassenger,
-      passengerCount: doc.passengerCount,
-      from: doc.from || "Unknown",
-      to: doc.to || "Unknown",
-      timestamp: Number.parseInt(doc.timestamp) || Date.now(),
-      paymentMethod: doc.paymentMethod || "QR",
-      transactionId: doc.transactionId || "0000000000",
-      conductorId: doc.conductorId,
-      passengerPhoto: doc.passengerPhoto,
-      passengerType: doc.passengerType,
-      kilometer: doc.kilometer,
-      totalTrips: doc.totalTrips,
-      busNumber: doc.busNumber,
-    }));
+    return response.documents.map((doc: any) => {
+      const tpRaw = (doc.totalPassengers ?? doc.passengerCount) as
+        | string
+        | undefined;
+      const totalPassengers =
+        tpRaw && String(tpRaw).trim() !== "" ? String(tpRaw) : "1";
+
+      return {
+        id: doc.$id,
+        passengerName: doc.passengerName ?? "Unknown Passenger",
+        fare: doc.fare ?? "₱0.00",
+        totalFare: doc.totalFare ?? doc.fare,
+        farePerPassenger: doc.farePerPassenger,
+        totalPassengers,
+        passengerCount: totalPassengers,
+        from: doc.from ?? "Unknown",
+        to: doc.to ?? "Unknown",
+        timestamp: safeParseTimestamp(doc.timestamp),
+        paymentMethod: doc.paymentMethod ?? "QR",
+        transactionId: doc.transactionId ?? "0000000000",
+        conductorId: doc.conductorId,
+        passengerPhoto: doc.passengerPhoto,
+        passengerType: doc.passengerType,
+        kilometer: doc.kilometer,
+        totalTrips: doc.totalTrips,
+        busNumber: doc.busNumber,
+      } as Trip;
+    });
   } catch (error) {
     console.error("Error getting trips by date range:", error);
     return [];

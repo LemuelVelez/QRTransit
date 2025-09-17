@@ -174,7 +174,7 @@ export default function ConductorProfileScreen() {
 
             <View className="items-center">
               <Text className="text-2xl font-bold text-emerald-600">{stats.totalPassengers}</Text>
-              <Text className="text-gray-500">Passengers</Text>
+              <Text className="text-gray-500">Tickets</Text>
             </View>
 
             <View className="items-center">
@@ -239,4 +239,3 @@ export default function ConductorProfileScreen() {
     </View>
   )
 }
-

@@ -140,7 +140,7 @@ export default function TripHistoryScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-emerald-400">
+      <View className="items-center justify-center flex-1 bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
         <Text className="mt-4 text-white">Loading trips...</Text>
@@ -157,23 +157,23 @@ export default function TripHistoryScreen() {
         <TouchableOpacity onPress={() => router.back()} className="p-2">
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Trip History</Text>
+        <Text className="text-xl font-bold text-white">Trip History</Text>
         <View style={{ width: 32 }} />
       </View>
 
-      <View className="px-4 flex-1">
+      <View className="flex-1 px-4">
         {/* Date Filter */}
-        <View className="bg-white rounded-lg p-4 mb-4">
+        <View className="p-4 mb-4 bg-white rounded-lg">
           <TouchableOpacity
             className="flex-row items-center justify-between mb-2"
             onPress={() => setShowDatePicker(true)}
           >
-            <Text className="text-black font-bold">Filter by Date</Text>
+            <Text className="font-bold text-black">Filter by Date</Text>
             <Ionicons name="calendar" size={24} color="#059669" />
           </TouchableOpacity>
 
           {(startDate || endDate) && (
-            <View className="flex-row justify-between items-center">
+            <View className="flex-row items-center justify-between">
               <Text className="text-gray-700">
                 {startDate ? startDate.toLocaleDateString() : "Any"} - {endDate ? endDate.toLocaleDateString() : "Any"}
               </Text>
@@ -186,9 +186,9 @@ export default function TripHistoryScreen() {
 
         {/* Trip List */}
         {filteredTrips.length === 0 ? (
-          <View className="bg-white rounded-lg p-8 items-center justify-center">
+          <View className="items-center justify-center p-8 bg-white rounded-lg">
             <Ionicons name="document-text-outline" size={48} color="#059669" />
-            <Text className="text-gray-700 mt-4 text-center">No trips found for the selected period.</Text>
+            <Text className="mt-4 text-center text-gray-700">No trips found for the selected period.</Text>
           </View>
         ) : (
           <FlatList
@@ -196,7 +196,7 @@ export default function TripHistoryScreen() {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
-                className="bg-white rounded-lg p-4 mb-3"
+                className="p-4 mb-3 bg-white rounded-lg"
                 onPress={() => handleViewDetails(item)}
                 activeOpacity={0.7}
               >
@@ -208,10 +208,10 @@ export default function TripHistoryScreen() {
                   <Text className="text-gray-500">{formatDate(item.timestamp)}</Text>
                   <View className="flex-row items-center">
                     <Ionicons name={item.paymentMethod === "QR" ? "qr-code" : "cash"} size={16} color="#059669" />
-                    <Text className="text-gray-500 ml-1">{item.paymentMethod}</Text>
+                    <Text className="ml-1 text-gray-500">{item.paymentMethod}</Text>
                   </View>
                 </View>
-                <View className="mt-2 flex-row justify-between items-center">
+                <View className="flex-row items-center justify-between mt-2">
                   <Text className="text-xs text-gray-400">Tap for details</Text>
                   <Ionicons name="chevron-forward" size={16} color="#059669" />
                 </View>

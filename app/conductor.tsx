@@ -93,8 +93,8 @@ export default function ConductorScreen() {
             const raw = baseFlagDown + result.distance * ratePerKm
 
             const [discPct, busMult] = await Promise.all([
-              getDiscountPercentage(passengerType), // discount in %
-              getBusTypeFareMultiplier(busType),    // multiplier from backend (or safe fallback)
+              getDiscountPercentage(passengerType),
+              getBusTypeFareMultiplier(busType),
             ])
 
             let calculated = raw * (busMult || 1)
@@ -304,7 +304,7 @@ export default function ConductorScreen() {
           routeInfo?.busNumber,
           busType,                 // from selector
           ticketCount,
-          fare
+          fare                     // per-person fare
         )
         setCurrentPaymentRequest(request)
       } else {
@@ -314,7 +314,9 @@ export default function ConductorScreen() {
           fare: totalFareString,
           totalFare: totalFareString,
           farePerPassenger: fare,
+          // ✅ persist both for compatibility, but totalPassengers is the source of truth
           passengerCount: String(ticketCount),
+          totalPassengers: String(ticketCount),
           from: from || "Unknown",
           to: to || "Unknown",
           timestamp: Date.now(),
@@ -337,6 +339,7 @@ export default function ConductorScreen() {
             fare: totalFareString,
             farePerPassenger: fare,
             passengerCount: String(ticketCount),
+            totalPassengers: String(ticketCount), // ✅ pass through to details
             from: from,
             to: to,
             timestamp: new Date().toLocaleString(),
@@ -364,12 +367,15 @@ export default function ConductorScreen() {
       )
       if (result.success) {
         const tripId = generateTripId()
+        const passengersStr = String(request.ticketCount || ticketCount || 1) // ✅ one place
         const trip = {
           passengerName: passengerData.name,
           fare: formatCurrency(amountToCharge),
           totalFare: formatCurrency(amountToCharge),
           farePerPassenger: request.farePerPassenger || fare,
-          passengerCount: String(request.ticketCount || ticketCount || 1),
+          // ✅ persist both (source of truth = totalPassengers)
+          passengerCount: passengersStr,
+          totalPassengers: passengersStr,
           from: request.from,
           to: request.to,
           timestamp: Date.now(),
@@ -392,7 +398,8 @@ export default function ConductorScreen() {
             passengerName: passengerData.name,
             fare: formatCurrency(amountToCharge),
             farePerPassenger: request.farePerPassenger || fare,
-            passengerCount: String(request.ticketCount || ticketCount || 1),
+            passengerCount: passengersStr,
+            totalPassengers: passengersStr, // ✅ pass through to details
             from: request.from,
             to: to,
             timestamp: new Date().toLocaleString(),
@@ -438,7 +445,6 @@ export default function ConductorScreen() {
 
   useEffect(() => {
     if (needsRefresh) {
-      // Force re-mount of selectors so both Passenger & Bus types refetch from backend
       refreshPassengerTypes()
       setNeedsRefresh(false)
     }
@@ -532,7 +538,6 @@ export default function ConductorScreen() {
 
           {/* Selectors */}
           <PassengerTypeSelector key={refreshKey} value={passengerType} onChange={setPassengerType} />
-          {/* Force BusTypeSelector to refetch when returning from Manage Discounts */}
           <BusTypeSelector key={refreshKey} value={busType} onChange={setBusType} />
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
