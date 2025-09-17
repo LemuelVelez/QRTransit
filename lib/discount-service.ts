@@ -129,7 +129,12 @@ export async function saveDiscountConfiguration(
     const databaseId = config.databaseId!;
     if (!databaseId) return null;
 
-    const isBus = (data.passengerType || "").toUpperCase() === BASE;
+    // FIX: Treat as Bus Type if busType is provided (even if passengerType is empty),
+    // or if legacy sentinel BASE is used.
+    const isBus =
+      (!!data.busType && !data.passengerType) ||
+      (data.passengerType || "").toUpperCase() === BASE;
+
     const collectionId = isBus
       ? getBusTypeCollectionId()
       : getPassengerCollectionId();
