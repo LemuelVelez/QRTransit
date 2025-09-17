@@ -18,6 +18,8 @@ export const config = {
   avatarBucketId: process.env.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID,
   discountsCollectionId:
     process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID,
+  // ✅ New: dedicated Bus Types collection
+  busTypeCollectionId: process.env.EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID,
 };
 
 export const client = new Client();

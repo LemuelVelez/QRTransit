@@ -18,6 +18,7 @@ import { useRouter, useFocusEffect } from "expo-router"
 import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
 import { getActiveRoute } from "@/lib/route-service"
 import PassengerTypeSelector from "@/components/passenger-type-selector"
+import BusTypeSelector from "@/components/bus-type-selector"
 import LocationInput from "@/components/location-input"
 import QRScanner from "@/components/qr-scanner"
 import PaymentConfirmation from "@/components/payment-confirmation"
@@ -34,67 +35,13 @@ import { saveTrip, generateTripId } from "@/lib/trips-service"
 import { calculateDistance } from "@/lib/google-maps-service"
 import { getDiscountPercentage, getBusTypeFareMultiplier } from "@/lib/discount-service"
 
-/** ✅ Canonicalize bus type so lookups work consistently */
-const CANONICAL_ORDER = ["Regular", "Air-Conditioned", "Deluxe"] as const
-type CanonicalBusType = (typeof CANONICAL_ORDER)[number]
-function normalizeBusType(raw: string): CanonicalBusType | string {
-  const s = (raw ?? "").toString().trim().toLowerCase()
-  if (
-    s === "ac" ||
-    s === "a/c" ||
-    s === "aircon" ||
-    s === "air-con" ||
-    s === "air con" ||
-    s === "air conditioned" ||
-    s === "air-conditioned" ||
-    (s.includes("air") && (s.includes("con") || s.includes("condition")))
-  ) return "Air-Conditioned"
-  if (s === "regular") return "Regular"
-  if (s === "deluxe") return "Deluxe"
-  return raw
-}
-
-/** ✅ Robust multiplier resolver:
- * Tries common synonyms for backend keys; if backend returns 1 (same as Regular),
- * apply sensible fallbacks so AC/Deluxe aren't priced like Regular.
- * (Fallbacks only apply if service doesn't provide a >1 multiplier.)
- */
-async function getFareMultiplierSafe(busTypeCanonical: string): Promise<number> {
-  const candidates = [
-    busTypeCanonical,
-    busTypeCanonical.replace("-", " "),
-    busTypeCanonical.replace(/-/g, " "),
-    busTypeCanonical.toLowerCase(),
-    busTypeCanonical.toUpperCase(),
-    busTypeCanonical === "Air-Conditioned" ? "Air Conditioned" : null,
-    busTypeCanonical === "Air-Conditioned" ? "AC" : null,
-  ].filter(Boolean) as string[]
-
-  for (const key of candidates) {
-    try {
-      const mult = await getBusTypeFareMultiplier(key)
-      if (typeof mult === "number" && mult > 0 && Math.abs(mult - 1) > 1e-9) {
-        return mult
-      }
-    } catch {
-      // ignore and try next candidate
-    }
-  }
-
-  // Last-resort fallbacks ONLY if service didn't give a distinct multiplier
-  if (busTypeCanonical === "Air-Conditioned") return 1.15
-  if (busTypeCanonical === "Deluxe") return 1.3
-  return 1
-}
-
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
-  const [busType, setBusType] = useState("Regular")
+  const [busType, setBusType] = useState("Regular") // selected from BusTypeSelector (backend-driven)
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [kilometer, setKilometer] = useState("")
-  // keep `fare` as per-person fare for backwards compatibility
-  const [fare, setFare] = useState("")
+  const [fare, setFare] = useState("") // per-person fare
   const [ticketCount, setTicketCount] = useState<number>(1)
 
   const [showQrScanner, setShowQrScanner] = useState(false)
@@ -112,35 +59,42 @@ export default function ConductorScreen() {
   const parseCurrencyToNumber = (s: string) => Number(String(s).replace(/[^\d.]/g, "")) || 0
   const formatCurrency = (n: number) => `₱${n.toFixed(2)}`
 
-  // Total (group) fare derived from per-person fare * ticketCount
   const perPersonFareNumber = parseCurrencyToNumber(fare)
   const totalFareNumber = perPersonFareNumber * (ticketCount || 1)
   const totalFareString = formatCurrency(totalFareNumber)
+
+  const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string } | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [needsRefresh, setNeedsRefresh] = useState(false)
+
+  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
+  const [passengerData, setPassengerData] = useState<{ userId: string; name: string } | null>(null)
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false)
+  const [currentPaymentRequest, setCurrentPaymentRequest] = useState<PaymentRequest | null>(null)
+
+  const subscriptionRef = useRef<(() => void) | null>(null)
+
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions()
+  const router = useRouter()
 
   useEffect(() => {
     const calculateDistanceAndFare = async () => {
       if (from.trim() && to.trim() && from !== to) {
         setIsCalculatingDistance(true)
         setDistanceError(null)
-
         try {
           const result = await calculateDistance(from, to)
-
           if (result.status === "OK" && result.distance > 0) {
             const distanceKm = result.distance.toFixed(2)
             setKilometer(distanceKm)
 
-            // Fare calc with busType uplift + passenger-type discount (scoped to busType)
             const baseFlagDown = 15
             const ratePerKm = 2.5
             const raw = baseFlagDown + result.distance * ratePerKm
 
-            // ✅ Ensure consistent keying for both discount + multiplier
-            const busTypeCanonical = String(normalizeBusType(busType))
-
             const [discPct, busMult] = await Promise.all([
-              getDiscountPercentage(passengerType, busTypeCanonical),
-              getFareMultiplierSafe(busTypeCanonical),
+              getDiscountPercentage(passengerType), // discount in %
+              getBusTypeFareMultiplier(busType),    // multiplier from backend (or safe fallback)
             ])
 
             let calculated = raw * (busMult || 1)
@@ -168,38 +122,21 @@ export default function ConductorScreen() {
       }
     }
 
-    const timeoutId = setTimeout(calculateDistanceAndFare, 500) // a bit snappier
+    const timeoutId = setTimeout(calculateDistanceAndFare, 500)
     return () => clearTimeout(timeoutId)
   }, [from, to, passengerType, busType])
-
-  const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string; busType: string } | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [needsRefresh, setNeedsRefresh] = useState(false)
-
-  const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
-  const [passengerData, setPassengerData] = useState<{ userId: string; name: string } | null>(null)
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false)
-  const [currentPaymentRequest, setCurrentPaymentRequest] = useState<PaymentRequest | null>(null)
-
-  const subscriptionRef = useRef<(() => void) | null>(null)
-
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions()
-  const router = useRouter()
 
   const loadActiveRoute = async (userId: string) => {
     try {
       const activeRoute = await getActiveRoute(userId)
       if (activeRoute) {
-        const normalizedType = String(normalizeBusType(activeRoute.busType || "Regular"))
         setRouteInfo({
           from: activeRoute.from,
           to: activeRoute.to,
           busNumber: activeRoute.busNumber,
-          busType: normalizedType,
         })
         setFrom(activeRoute.from)
         setTo(activeRoute.to)
-        setBusType(normalizedType)
       } else {
         Alert.alert("No Active Route", "You don't have an active route. Please set up or activate a route.", [
           {
@@ -275,11 +212,9 @@ export default function ConductorScreen() {
 
   useEffect(() => {
     if (!conductorId) return
-
     const unsubscribe = subscribeToPaymentRequests(conductorId, "conductor", (request) => {
       if (currentPaymentRequest && currentPaymentRequest.id === request.id) {
         setCurrentPaymentRequest(request)
-
         if (request.status === "approved") {
           handleProcessPayment(request)
         } else if (request.status === "declined") {
@@ -290,13 +225,12 @@ export default function ConductorScreen() {
         }
       }
     })
-
     subscriptionRef.current = unsubscribe
     return () => unsubscribe()
   }, [conductorId, currentPaymentRequest])
 
   useEffect(() => {
-    ;(async () => {
+    ; (async () => {
       if (!cameraPermission?.granted) await requestCameraPermission()
     })()
   }, [cameraPermission, requestCameraPermission])
@@ -305,16 +239,15 @@ export default function ConductorScreen() {
     setRefreshing(true)
     if (conductorId) {
       await loadActiveRoute(conductorId)
-      refreshPassengerTypes()
+      refreshPassengerTypes() // also refresh selectors via key
     }
     setRefreshing(false)
   }, [conductorId, refreshPassengerTypes])
 
-  /** ✅ Auto-refresh when screen gains focus (updates route & lists) */
   useFocusEffect(
     useCallback(() => {
       onRefresh()
-      return () => {}
+      return () => { }
     }, [onRefresh]),
   )
 
@@ -357,33 +290,28 @@ export default function ConductorScreen() {
 
   const handleConfirmPayment = async () => {
     if (!passengerData || totalFareNumber <= 0 || !conductorId) return
-
     setIsProcessingPayment(true)
-
     try {
       if (paymentMethod === "QR") {
-        // Create grouped payment request
         const request = await createPaymentRequest(
           conductorId,
           conductorName,
           passengerData.userId,
           passengerData.name,
-          totalFareString,                // total charge
+          totalFareString,
           from || "Unknown",
           to || "Unknown",
           routeInfo?.busNumber,
-          routeInfo?.busType,             // bus type on request
-          ticketCount,                    // grouped tickets
-          fare                            // per-person fare
+          busType,                 // from selector
+          ticketCount,
+          fare
         )
-
         setCurrentPaymentRequest(request)
       } else {
-        // CASH: save grouped trip
         const tripId = generateTripId()
         const trip = {
           passengerName: passengerData.name,
-          fare: totalFareString,                // legacy 'fare' = total
+          fare: totalFareString,
           totalFare: totalFareString,
           farePerPassenger: fare,
           passengerCount: String(ticketCount),
@@ -397,14 +325,10 @@ export default function ConductorScreen() {
           passengerType: passengerType,
           kilometer: kilometer,
           busNumber: routeInfo?.busNumber,
-          busType: routeInfo?.busType || busType,
         }
-
         const savedTripId = await saveTrip(trip)
-
         setShowPaymentConfirmation(false)
         setIsProcessingPayment(false)
-
         router.push({
           pathname: "/receipt" as any,
           params: {
@@ -431,16 +355,13 @@ export default function ConductorScreen() {
 
   const handleProcessPayment = async (request: PaymentRequest) => {
     if (!request || !passengerData) return
-
     try {
       const amountToCharge = parseCurrencyToNumber(request.totalFare || request.fare)
-
       const result = await processPayment(
         request.passengerId,
         amountToCharge,
         `Fare payment from ${request.from} to ${request.to}`
       )
-
       if (result.success) {
         const tripId = generateTripId()
         const trip = {
@@ -458,16 +379,12 @@ export default function ConductorScreen() {
           passengerType: passengerType,
           kilometer: kilometer,
           busNumber: request.busNumber || routeInfo?.busNumber,
-          busType: request.busType || busType,
         }
-
         const savedTripId = await saveTrip(trip)
         await updatePaymentRequestStatus(request.id, "completed", savedTripId || result.transactionId)
-
         setShowPaymentConfirmation(false)
         setIsProcessingPayment(false)
         setCurrentPaymentRequest(null)
-
         router.push({
           pathname: "/receipt" as any,
           params: {
@@ -516,11 +433,12 @@ export default function ConductorScreen() {
 
   const navigateToManageDiscounts = () => {
     setNeedsRefresh(true)
-    router.push({ pathname: "/conductor/manage-discounts" as any })
+    router.push({ pathname: "/conductor/manage-types" as any })
   }
 
   useEffect(() => {
     if (needsRefresh) {
+      // Force re-mount of selectors so both Passenger & Bus types refetch from backend
       refreshPassengerTypes()
       setNeedsRefresh(false)
     }
@@ -572,7 +490,7 @@ export default function ConductorScreen() {
                 <Text className="font-bold text-white">
                   {routeInfo.from} → {routeInfo.to}
                 </Text>
-                <Text className="text-white opacity-80">Bus #{routeInfo.busNumber} • {routeInfo.busType}</Text>
+                <Text className="text-white opacity-80">Bus #{routeInfo.busNumber}</Text>
               </View>
               <View className="flex-row">
                 <TouchableOpacity
@@ -612,8 +530,10 @@ export default function ConductorScreen() {
             </View>
           )}
 
-          {/* Passenger type list depends on busType */}
-          <PassengerTypeSelector key={refreshKey} value={passengerType} onChange={setPassengerType} busType={busType} />
+          {/* Selectors */}
+          <PassengerTypeSelector key={refreshKey} value={passengerType} onChange={setPassengerType} />
+          {/* Force BusTypeSelector to refetch when returning from Manage Discounts */}
+          <BusTypeSelector key={refreshKey} value={busType} onChange={setBusType} />
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
@@ -657,7 +577,6 @@ export default function ConductorScreen() {
                 <Text style={styles.fareValue}>{fare || (isCalculatingDistance ? "Calculating..." : "₱0.00")}</Text>
               </View>
 
-              {/* Tickets selector */}
               <View style={[styles.fareRow, { borderBottomWidth: 0 }]}>
                 <Text style={styles.fareLabel}>Tickets (Passengers):</Text>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -711,7 +630,6 @@ export default function ConductorScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Payment Confirmation Dialog */}
       {showPaymentConfirmation && passengerData && (
         <PaymentConfirmation
           visible={showPaymentConfirmation}
@@ -737,7 +655,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e9ecef",
   },
-
   calculatingContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -747,34 +664,29 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
-
   calculatingText: {
     marginLeft: 8,
     color: "#1976d2",
     fontSize: 14,
     fontWeight: "500",
   },
-
   errorContainer: {
     backgroundColor: "#ffebee",
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
   },
-
   errorText: {
     color: "#c62828",
     fontSize: 14,
     textAlign: "center",
   },
-
   fareDisplayContainer: {
     backgroundColor: "white",
     borderRadius: 8,
     padding: 16,
     marginBottom: 12,
   },
-
   fareRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -783,7 +695,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-
   totalFareRow: {
     borderBottomWidth: 0,
     paddingTop: 12,
@@ -791,45 +702,38 @@ const styles = StyleSheet.create({
     borderTopWidth: 2,
     borderTopColor: "#007AFF",
   },
-
   fareLabel: {
     fontSize: 16,
     color: "#666",
     fontWeight: "500",
   },
-
   fareValue: {
     fontSize: 16,
     color: "#333",
     fontWeight: "600",
   },
-
   totalFareLabel: {
     fontSize: 18,
     color: "#007AFF",
     fontWeight: "bold",
   },
-
   totalFareValue: {
     fontSize: 20,
     color: "#007AFF",
     fontWeight: "bold",
   },
-
   gpsNote: {
     fontSize: 12,
     color: "#666",
     textAlign: "center",
     fontStyle: "italic",
   },
-
   sectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
     color: "#333",
     marginBottom: 12,
   },
-
   qtyBtn: {
     width: 36,
     height: 36,

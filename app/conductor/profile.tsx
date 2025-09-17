@@ -102,7 +102,7 @@ export default function ConductorProfileScreen() {
 
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-emerald-400">
+      <View className="items-center justify-center flex-1 bg-emerald-400">
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
         <ActivityIndicator size="large" color="white" />
         <Text className="mt-4 text-white">Loading profile...</Text>
@@ -115,11 +115,11 @@ export default function ConductorProfileScreen() {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
       {/* Header */}
-      <View className="pt-16 px-4 flex-row items-center justify-between">
+      <View className="flex-row items-center justify-between px-4 pt-16">
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text className="text-white text-xl font-bold">Profile</Text>
+        <Text className="text-xl font-bold text-white">Profile</Text>
         <TouchableOpacity onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={24} color="white" />
         </TouchableOpacity>
@@ -132,8 +132,8 @@ export default function ConductorProfileScreen() {
         }
       >
         {/* Profile Card */}
-        <View className="bg-white rounded-lg p-6 mb-4 items-center">
-          <View className="w-24 h-24 bg-emerald-100 rounded-full justify-center items-center mb-4">
+        <View className="items-center p-6 mb-4 bg-white rounded-lg">
+          <View className="items-center justify-center w-24 h-24 mb-4 rounded-full bg-emerald-100">
             {user?.profileImage ? (
               <Image source={{ uri: user.profileImage }} className="w-24 h-24 rounded-full" />
             ) : (
@@ -141,11 +141,11 @@ export default function ConductorProfileScreen() {
             )}
           </View>
 
-          <Text className="text-2xl font-bold text-gray-800 mb-1">
+          <Text className="mb-1 text-2xl font-bold text-gray-800">
             {user?.firstname && user?.lastname ? `${user.firstname} ${user.lastname}` : user?.username || "Conductor"}
           </Text>
 
-          <Text className="text-gray-500 mb-4">Conductor ID: {user?.$id?.substring(0, 8) || "N/A"}</Text>
+          <Text className="mb-4 text-gray-500">Conductor ID: {user?.$id?.substring(0, 8) || "N/A"}</Text>
 
           {user?.email && (
             <View className="flex-row items-center mb-2">
@@ -163,8 +163,8 @@ export default function ConductorProfileScreen() {
         </View>
 
         {/* Stats */}
-        <View className="bg-white rounded-lg p-6 mb-4">
-          <Text className="text-lg font-bold text-gray-800 mb-4">Activity Summary</Text>
+        <View className="p-6 mb-4 bg-white rounded-lg">
+          <Text className="mb-4 text-lg font-bold text-gray-800">Activity Summary</Text>
 
           <View className="flex-row justify-between mb-4">
             <View className="items-center">
@@ -190,8 +190,8 @@ export default function ConductorProfileScreen() {
         </View>
 
         {/* Quick Actions */}
-        <View className="bg-white rounded-lg p-6">
-          <Text className="text-lg font-bold text-gray-800 mb-4">Quick Actions</Text>
+        <View className="p-6 bg-white rounded-lg">
+          <Text className="mb-4 text-lg font-bold text-gray-800">Quick Actions</Text>
 
           <TouchableOpacity
             className="flex-row items-center py-3 border-b border-gray-100"
@@ -212,7 +212,7 @@ export default function ConductorProfileScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             className="flex-row items-center py-3 border-b border-gray-100"
-            onPress={() => router.push("/conductor/manage-discounts")}
+            onPress={() => router.push("/conductor/manage-types")}
           >
             <Ionicons name="cash-outline" size={20} color="#059669" className="mr-4" />
             <Text className="text-gray-700">Manage Discounts</Text>

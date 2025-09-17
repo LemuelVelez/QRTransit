@@ -1,5 +1,5 @@
 import { databases, config } from "./appwrite";
-import { Query } from "react-native-appwrite";
+import { ID, Query } from "react-native-appwrite";
 
 export interface Trip {
   id: string;
@@ -136,10 +136,11 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
       busNumber: trip.busNumber || "",
     };
 
+    // ✅ Use a real unique id generator from the SDK
     const result = await databases.createDocument(
       databaseId,
       collectionId,
-      "unique()",
+      ID.unique(),
       tripData
     );
     return result.$id;

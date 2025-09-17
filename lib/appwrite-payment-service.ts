@@ -19,14 +19,12 @@ export interface PaymentRequest {
   status: "pending" | "approved" | "declined" | "completed" | "expired";
   transactionId?: string;
   busNumber?: string;
-  busType?: string; // NEW
-  // NEW
+  busType?: string;
   ticketCount?: number;
   farePerPassenger?: string;
   totalFare?: string; // mirrors `fare`
 }
 
-// include new params
 export async function createPaymentRequest(
   conductorId: string,
   conductorName: string,
@@ -36,7 +34,7 @@ export async function createPaymentRequest(
   from: string,
   to: string,
   busNumber?: string,
-  busType?: string, // NEW
+  busType?: string,
   ticketCount?: number,
   farePerPassenger?: string
 ): Promise<PaymentRequest> {
@@ -61,7 +59,7 @@ export async function createPaymentRequest(
       from,
       to,
       timestamp,
-      status: "pending",
+      status: "pending" as const,
       busNumber: busNumber || "",
       busType: busType || "Regular",
     };
@@ -173,6 +171,11 @@ export async function getPaymentRequest(
   requestId: string
 ): Promise<PaymentRequest | null> {
   try {
+    if (!requestId) {
+      console.error("getPaymentRequest called with empty requestId");
+      return null;
+    }
+
     const databaseId = config.databaseId;
     const collectionId = getPaymentRequestsCollectionId();
     if (!databaseId || !collectionId)
@@ -217,42 +220,50 @@ export function subscribeToPaymentRequests(
   const collectionId = getPaymentRequestsCollectionId();
 
   if (!databaseId || !collectionId) {
-    console.error("Appwrite configuration missing");
+    console.error(
+      "Appwrite configuration missing: databaseId or collectionId is empty"
+    );
     return () => {};
   }
 
+  // ✅ Use document-level channel (prevents null id in server’s realtime getDocument)
+  const channel = `databases.${databaseId}.collections.${collectionId}.documents.*`;
+
   try {
-    const channel = `databases.${databaseId}.collections.${collectionId}.documents`;
-
     const unsubscribe = client.subscribe(channel, (response: any) => {
-      const document = response.payload;
-
-      if (
-        document &&
-        ((role === "passenger" && document.passengerId === userId) ||
-          (role === "conductor" && document.conductorId === userId))
-      ) {
-        const paymentRequest: PaymentRequest = {
-          id: document.$id,
-          conductorId: document.conductorId,
-          conductorName: document.conductorName,
-          passengerId: document.passengerId,
-          passengerName: document.passengerName,
-          fare: document.fare,
-          from: document.from,
-          to: document.to,
-          timestamp: document.timestamp,
-          status: document.status,
-          transactionId: document.transactionId,
-          busNumber: document.busNumber,
-          busType: document.busType,
-          ticketCount: Number(document.ticketCount || 1),
-          farePerPassenger: document.farePerPassenger || "",
-          totalFare: document.totalFare || document.fare,
-        };
-
-        callback(paymentRequest);
+      const document = response?.payload;
+      if (!document || typeof document.$id !== "string") {
+        // No document in payload; nothing to do.
+        return;
       }
+
+      // Filter by role ownership before invoking the callback
+      const matchesRole =
+        (role === "passenger" && document.passengerId === userId) ||
+        (role === "conductor" && document.conductorId === userId);
+
+      if (!matchesRole) return;
+
+      const paymentRequest: PaymentRequest = {
+        id: document.$id,
+        conductorId: document.conductorId,
+        conductorName: document.conductorName,
+        passengerId: document.passengerId,
+        passengerName: document.passengerName,
+        fare: document.fare,
+        from: document.from,
+        to: document.to,
+        timestamp: document.timestamp,
+        status: document.status,
+        transactionId: document.transactionId,
+        busNumber: document.busNumber,
+        busType: document.busType,
+        ticketCount: Number(document.ticketCount || 1),
+        farePerPassenger: document.farePerPassenger || "",
+        totalFare: document.totalFare || document.fare,
+      };
+
+      callback(paymentRequest);
     });
 
     return unsubscribe;

@@ -17,16 +17,12 @@ import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { getCurrentUser } from "@/lib/appwrite"
 import { getAllRoutes, updateRoute, deleteRoute, type RouteInfo } from "@/lib/route-service"
-import RouteEditModal from "@/components/route-edit-modal"
-import BusTypeSelector from "@/components/bus-type-selector" // ✅ ADDED
 
 export default function ManageRoutesScreen() {
     const [loading, setLoading] = useState(true)
     const [refreshing, setRefreshing] = useState(false)
     const [routes, setRoutes] = useState<RouteInfo[]>([])
     const [conductorId, setConductorId] = useState("")
-    const [showEditModal, setShowEditModal] = useState(false)
-    const [selectedRoute, setSelectedRoute] = useState<RouteInfo | null>(null)
 
     const router = useRouter()
 
@@ -71,25 +67,15 @@ export default function ManageRoutesScreen() {
         setRefreshing(false)
     }
 
-    const handleEditRoute = (route: RouteInfo) => {
-        setSelectedRoute(route)
-        setShowEditModal(true)
-    }
-
     const handleToggleActive = async (route: RouteInfo) => {
         try {
             if (!route.id) {
                 Alert.alert("Error", "Route ID is missing")
                 return
             }
-
             setLoading(true)
             const newActiveStatus = !(route.active === true)
-
-            const success = await updateRoute(route.id, {
-                active: newActiveStatus,
-            })
-
+            const success = await updateRoute(route.id, { active: newActiveStatus })
             if (success) {
                 const updatedRoutes = routes.map((r) => (r.id === route.id ? { ...r, active: newActiveStatus } : r))
                 setRoutes(updatedRoutes)
@@ -101,28 +87,6 @@ export default function ManageRoutesScreen() {
         } catch (error) {
             console.error("Error toggling route status:", error)
             Alert.alert("Error", "Failed to update route status")
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    // ✅ ADDED: Persist bus type change
-    const handleChangeBusType = async (route: RouteInfo, newType: string) => {
-        try {
-            if (!route.id) {
-                Alert.alert("Error", "Route ID is missing")
-                return
-            }
-            setLoading(true)
-            const success = await updateRoute(route.id, { busType: newType })
-            if (success) {
-                setRoutes(routes.map((r) => (r.id === route.id ? { ...r, busType: newType } : r)))
-            } else {
-                Alert.alert("Error", "Failed to update bus type")
-            }
-        } catch (error) {
-            console.error("Error updating bus type:", error)
-            Alert.alert("Error", "Failed to update bus type")
         } finally {
             setLoading(false)
         }
@@ -140,10 +104,8 @@ export default function ManageRoutesScreen() {
                             Alert.alert("Error", "Route ID is missing")
                             return
                         }
-
                         setLoading(true)
                         const success = await deleteRoute(route.id)
-
                         if (success) {
                             setRoutes(routes.filter((r) => r.id !== route.id))
                             Alert.alert("Success", "Route deleted successfully")
@@ -159,38 +121,6 @@ export default function ManageRoutesScreen() {
                 },
             },
         ])
-    }
-
-    const handleUpdateRoute = async (updatedRoute: RouteInfo) => {
-        try {
-            if (!updatedRoute.id) {
-                Alert.alert("Error", "Route ID is missing")
-                return
-            }
-
-            setLoading(true)
-            const success = await updateRoute(updatedRoute.id, {
-                from: updatedRoute.from,
-                to: updatedRoute.to,
-                busNumber: updatedRoute.busNumber,
-                busType: updatedRoute.busType, // typed in RouteInfo & supported in route-service
-                active: updatedRoute.active,
-            })
-
-            if (success) {
-                setRoutes(routes.map((r) => (r.id === updatedRoute.id ? updatedRoute : r)))
-                setShowEditModal(false)
-                Alert.alert("Success", "Route updated successfully")
-                await loadRoutes(conductorId)
-            } else {
-                Alert.alert("Error", "Failed to update route")
-            }
-        } catch (error) {
-            console.error("Error updating route:", error)
-            Alert.alert("Error", "Failed to update route")
-        } finally {
-            setLoading(false)
-        }
     }
 
     const formatDate = (timestamp: number) => {
@@ -261,24 +191,22 @@ export default function ManageRoutesScreen() {
                                 <Text className="text-lg font-bold text-gray-800">
                                     {route.from} → {route.to}
                                 </Text>
-                                <Text className="text-gray-600">Bus #{route.busNumber} • {route.busType || "Regular"}</Text>
-                            </View>
-
-                            {/* ✅ ADDED: Inline bus type selector per route */}
-                            <View className="mb-3">
-                                <BusTypeSelector
-                                    value={route.busType || "Regular"}
-                                    onChange={(t) => handleChangeBusType(route, t)}
-                                />
+                                <Text className="text-gray-600">Bus #{route.busNumber}</Text>
                             </View>
 
                             <View className="flex-row justify-end">
-                                <TouchableOpacity className="flex-row items-center mr-3" onPress={() => handleEditRoute(route)}>
-                                    <Ionicons name="create-outline" size={18} color="#059669" />
-                                    <Text className="ml-1 text-emerald-600">Edit</Text>
+                                <TouchableOpacity
+                                    className="flex-row items-center"
+                                    onPress={() => router.push({ pathname: "/conductor/route-setup" as any })}
+                                >
+                                    <Ionicons name="add-circle-outline" size={18} color="#059669" />
+                                    <Text className="ml-1 text-emerald-600">Add New</Text>
                                 </TouchableOpacity>
 
-                                <TouchableOpacity className="flex-row items-center" onPress={() => handleDeleteRoute(route)}>
+                                <TouchableOpacity
+                                    className="flex-row items-center ml-4"
+                                    onPress={() => handleDeleteRoute(route)}
+                                >
                                     <Ionicons name="trash-outline" size={18} color="#ef4444" />
                                     <Text className="ml-1 text-red-500">Delete</Text>
                                 </TouchableOpacity>
@@ -287,24 +215,6 @@ export default function ManageRoutesScreen() {
                     ))
                 )}
             </ScrollView>
-
-            {/* Add Route Button */}
-            <TouchableOpacity
-                className="absolute items-center justify-center rounded-full shadow-lg bottom-6 right-6 bg-emerald-600 w-14 h-14"
-                onPress={() => router.push("/conductor/route-setup" as any)}
-            >
-                <Ionicons name="add" size={30} color="white" />
-            </TouchableOpacity>
-
-            {/* Edit Modal */}
-            {selectedRoute && (
-                <RouteEditModal
-                    visible={showEditModal}
-                    route={selectedRoute}
-                    onClose={() => setShowEditModal(false)}
-                    onSave={handleUpdateRoute}
-                />
-            )}
         </View>
     )
 }

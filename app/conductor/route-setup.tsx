@@ -1,3 +1,4 @@
+// app/conductor/route-setup.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -7,14 +8,12 @@ import { Ionicons } from "@expo/vector-icons"
 import { getCurrentUser } from "@/lib/appwrite"
 import { saveRouteInfo } from "@/lib/route-service"
 import LocationInput from "@/components/location-input"
-import BusTypeSelector from "@/components/bus-type-selector"
 
 export default function RouteSetupScreen() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [busNumber, setBusNumber] = useState("")
-  const [busType, setBusType] = useState("Regular")
-  const [active, setActive] = useState(false) // Default to inactive
+  const [active, setActive] = useState(false)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [conductorId, setConductorId] = useState("")
@@ -25,13 +24,11 @@ export default function RouteSetupScreen() {
     async function loadUser() {
       try {
         const user = await getCurrentUser()
-
         if (!user) {
           Alert.alert("Error", "Failed to get user information")
           router.replace("/")
           return
         }
-
         setConductorId(user.$id || "")
         setInitialLoading(false)
       } catch (error) {
@@ -40,35 +37,26 @@ export default function RouteSetupScreen() {
         router.replace("/")
       }
     }
-
     loadUser()
   }, [])
 
   const handleSaveRoute = async () => {
-    if (!from || !to || !busNumber || !busType) {
-      Alert.alert("Missing Information", "Please fill in all fields including bus type")
+    if (!from || !to || !busNumber) {
+      Alert.alert("Missing Information", "Please fill in From, To and Bus Number")
       return
     }
-
     setLoading(true)
-
     try {
       const routeInfo = {
         from,
         to,
         busNumber,
-        busType,
         timestamp: Date.now(),
-        active: active, // Use the active state
+        active: active,
       }
-
       await saveRouteInfo(conductorId, routeInfo)
-
       Alert.alert("Route Saved", "Your route has been set up successfully", [
-        {
-          text: "OK",
-          onPress: () => router.replace("/conductor" as any),
-        },
+        { text: "OK", onPress: () => router.replace("/conductor" as any) },
       ])
     } catch (error) {
       console.error("Error saving route:", error)
@@ -105,7 +93,6 @@ export default function RouteSetupScreen() {
           <Text className="mb-6 text-xl font-bold text-gray-800">Route Information</Text>
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Starting point" />
-
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Destination" />
 
           <View className="mb-4">
@@ -122,7 +109,7 @@ export default function RouteSetupScreen() {
             </View>
           </View>
 
-          <BusTypeSelector value={busType} onChange={setBusType} />
+          {/* No bus type here anymore; conductor chooses it on the main screen */}
 
           <View className="flex-row items-center justify-between mb-6">
             <Text className="font-medium text-gray-700">Activate Route</Text>
@@ -138,7 +125,7 @@ export default function RouteSetupScreen() {
           <TouchableOpacity
             className="items-center py-4 rounded-lg bg-emerald-500"
             onPress={handleSaveRoute}
-            disabled={loading || !from || !to || !busNumber || !busType}
+            disabled={loading || !from || !to || !busNumber}
           >
             {loading ? (
               <ActivityIndicator size="small" color="white" />
