@@ -230,7 +230,7 @@ export default function ConductorScreen() {
   }, [conductorId, currentPaymentRequest])
 
   useEffect(() => {
-    ; (async () => {
+    (async () => {
       if (!cameraPermission?.granted) await requestCameraPermission()
     })()
   }, [cameraPermission, requestCameraPermission])
@@ -247,7 +247,7 @@ export default function ConductorScreen() {
   useFocusEffect(
     useCallback(() => {
       onRefresh()
-      return () => { }
+      return () => {}
     }, [onRefresh]),
   )
 
@@ -537,8 +537,9 @@ export default function ConductorScreen() {
           )}
 
           {/* Selectors */}
-          <PassengerTypeSelector key={refreshKey} value={passengerType} onChange={setPassengerType} />
-          <BusTypeSelector key={refreshKey} value={busType} onChange={setBusType} />
+          {/* ✅ Give each sibling a unique namespaced key to avoid duplicate-key reconciliation issues */}
+          <PassengerTypeSelector key={`pts-${refreshKey}`} value={passengerType} onChange={setPassengerType} />
+          <BusTypeSelector key={`bts-${refreshKey}`} value={busType} onChange={setBusType} />
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
