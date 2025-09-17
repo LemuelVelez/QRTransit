@@ -13,15 +13,15 @@ type Props = {
 
 export default function BusTypeSelector({ value, onChange }: Props) {
     const [loading, setLoading] = useState(true)
-    const [types, setTypes] = useState<string[]>(["Regular"]) // fallback while loading
+    const [types, setTypes] = useState<string[]>(["Regular"])
+    const [error, setError] = useState<string | null>(null)
 
     const load = useCallback(async () => {
         setLoading(true)
+        setError(null)
         try {
-            // Read REAL data from the Bus Types collection (EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID)
             const configs = await getBusTypeConfigurations()
 
-            // Keep only active types, dedupe (case-insensitive), and tidy names
             const names = (configs || [])
                 .filter((c) => c?.busType && c.active)
                 .map((c) => String(c.busType).trim())
@@ -35,22 +35,20 @@ export default function BusTypeSelector({ value, onChange }: Props) {
                 return true
             })
 
-            // If no data from backend, retain only "Regular"
             const list = deduped.length > 0 ? deduped : ["Regular"]
 
-            // Prefer "Regular" first if present
             list.sort((a, b) =>
                 a.toLowerCase() === "regular" ? -1 : b.toLowerCase() === "regular" ? 1 : a.localeCompare(b),
             )
 
             setTypes(list)
 
-            // Ensure current selection is valid
             const hasCurrent = list.some((t) => t.toLowerCase() === String(value || "").toLowerCase())
             if (!hasCurrent) onChange(list[0])
-        } catch (e) {
-            console.warn("BusTypeSelector: failed to load bus types, using fallback.", e)
+        } catch (e: any) {
+            console.warn("BusTypeSelector: failed to load bus types, using fallback.", e?.message || e)
             setTypes(["Regular"])
+            setError("Couldn’t load bus types. Using default.")
             if (String(value).toLowerCase() !== "regular") onChange("Regular")
         } finally {
             setLoading(false)
@@ -76,21 +74,28 @@ export default function BusTypeSelector({ value, onChange }: Props) {
                     <Text className="mt-2 text-gray-500">Loading available bus types…</Text>
                 </View>
             ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
-                    {types.map((t) => {
-                        const selected = String(value).toLowerCase() === t.toLowerCase()
-                        return (
-                            <TouchableOpacity
-                                key={t}
-                                onPress={() => onChange(t)}
-                                className={`px-4 py-2 mr-2 rounded-full border ${selected ? "bg-white border-white" : "bg-emerald-600 border-white/40"
-                                    }`}
-                            >
-                                <Text className={`${selected ? "text-emerald-700 font-bold" : "text-white font-semibold"}`}>{t}</Text>
-                            </TouchableOpacity>
-                        )
-                    })}
-                </ScrollView>
+                <>
+                    {error && (
+                        <View className="p-2 mb-2 rounded bg-yellow-50">
+                            <Text className="text-xs text-yellow-700">{error}</Text>
+                        </View>
+                    )}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
+                        {types.map((t) => {
+                            const selected = String(value).toLowerCase() === t.toLowerCase()
+                            return (
+                                <TouchableOpacity
+                                    key={t}
+                                    onPress={() => onChange(t)}
+                                    className={`px-4 py-2 mr-2 rounded-full border ${selected ? "bg-white border-white" : "bg-emerald-600 border-white/40"
+                                        }`}
+                                >
+                                    <Text className={`${selected ? "text-emerald-700 font-bold" : "text-white font-semibold"}`}>{t}</Text>
+                                </TouchableOpacity>
+                            )
+                        })}
+                    </ScrollView>
+                </>
             )}
         </View>
     )

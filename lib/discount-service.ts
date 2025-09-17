@@ -1,119 +1,121 @@
 // lib/discount-service.ts
 import { ID } from "react-native-appwrite";
 import { databases, config } from "./appwrite";
+import Constants from "expo-constants";
 
 export interface DiscountConfig {
   id?: string;
-  passengerType: string; // e.g., "Regular", "Student", "Senior", "PWD" OR "BASE" for bus-type rules
-  // busType is now ONLY for Bus Types collection entries
-  busType?: string; // e.g., "Regular", "Air-Conditioned", "Deluxe" (present only for BASE rows)
-  // UI expects a percentage string for both passenger and bus entries
+  passengerType: string; // "Regular" | "Student" | ... OR "BASE" for bus rules
+  busType?: string;      // Only present for bus type rows
   discountPercentage: string;
   description?: string;
   active: boolean;
   createdAt?: string;
 }
 
-const ANY = "Any";
 const BASE = "BASE";
 
-// Collection resolvers
+// ------- robust env read (backup if config is missing) -------
+const readEnv = (key: string): string | undefined => {
+  const v1 = (process.env as any)?.[key];
+  if (v1 != null) return String(v1);
+  const extra =
+    (Constants?.expoConfig as any)?.extra ||
+    (Constants as any)?.manifest2?.extra ||
+    (Constants as any)?.manifest?.extra ||
+    {};
+  const naked = key.replace(/^EXPO_PUBLIC_/, "");
+  const v2 = extra?.[key] ?? extra?.[naked];
+  return v2 != null ? String(v2) : undefined;
+};
+
 const getPassengerCollectionId = () => config.discountsCollectionId || "";
 const getBusTypeCollectionId = () =>
-  config.busTypeCollectionId ||
-  process.env.EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID ||
-  "";
+  config.busTypeCollectionId || readEnv("EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID") || "";
+const getDatabaseId = () => config.databaseId || "";
 
-// ---------- utils ----------
+// ---------------- utils ----------------
 const eq = (a?: string, b?: string) =>
   (a || "").toLowerCase().trim() === (b || "").toLowerCase().trim();
 
-const isAny = (v?: string) =>
-  ["*", "any", "all", ANY.toLowerCase()].includes(
-    (v || "").toLowerCase().trim()
-  );
-
-const clampPct = (n: string | number) =>
-  Math.max(0, Math.min(100, Number(n) || 0));
-
-function toMultiplierStrFromPct(pct: string | number): string {
+const clampPct = (n: string | number) => Math.max(0, Math.min(100, Number(n) || 0));
+const toMultiplierStrFromPct = (pct: string | number): string => {
   const n = Number(pct);
   if (!Number.isFinite(n)) return "1";
   const clamped = clampPct(n);
-  const mult = 1 + clamped / 100;
-  return String(Number(mult.toFixed(4))); // normalized string like "1.2"
-}
-
-function toPctStrFromMultiplier(mult: string | number): string {
+  return String(Number((1 + clamped / 100).toFixed(4)));
+};
+const toPctStrFromMultiplier = (mult: string | number): string => {
   const m = Number(mult);
   if (!Number.isFinite(m) || m <= 0) return "0";
-  const pct = (m - 1) * 100;
-  const clamped = Math.max(0, Math.min(100, pct));
-  return String(Number(clamped.toFixed(2))); // "20" or "20.5"
+  return String(Number(((m - 1) * 100).toFixed(2)));
+};
+
+// -------- shared readers with fallback --------
+async function listPassengerDocs(): Promise<any[]> {
+  const db = getDatabaseId();
+  const col = getPassengerCollectionId();
+  if (!db || !col) return [];
+  const res = await databases.listDocuments(db, col, []);
+  return res.documents || [];
 }
 
-// ---------- CRUD ----------
+async function listBusTypeDocs(): Promise<any[]> {
+  const db = getDatabaseId();
+  const busCol = getBusTypeCollectionId();
 
-/**
- * Returns a merged list:
- *  - Passenger discounts from Passenger collection (NO busType field)
- *  - Bus type rules from Bus Type collection, surfaced as percentage strings in `discountPercentage`
- *    (UI continues to show “Uplift %”, but backend stores `multiplier` string)
- */
+  if (db && busCol) {
+    try {
+      const r = await databases.listDocuments(db, busCol, []);
+      return r.documents || [];
+    } catch (e) {
+      console.warn("listBusTypeDocs: bus collection read failed, trying fallback", e);
+    }
+  }
+
+  try {
+    const passenger = await listPassengerDocs();
+    return (passenger || []).filter(
+      (d: any) => d && typeof d.busType === "string" && d.busType.trim() !== ""
+    );
+  } catch (e) {
+    console.warn("listBusTypeDocs: fallback read failed", e);
+  }
+
+  return [];
+}
+
+// ---------------- CRUD ----------------
 export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
   try {
-    const databaseId = config.databaseId!;
-    const passengerCol = getPassengerCollectionId();
-    const busCol = getBusTypeCollectionId();
-    if (!databaseId) return [];
+    const passengerDocs = (await listPassengerDocs()).map((doc: any) => ({
+      id: doc.$id,
+      passengerType: doc.passengerType,
+      discountPercentage:
+        doc.discountPercentage !== undefined && doc.discountPercentage !== null
+          ? String(doc.discountPercentage)
+          : "0",
+      description: doc.description || "",
+      active: !!doc.active,
+      createdAt: doc.$createdAt,
+    }));
 
-    // Passenger discount docs (no busType persisted anymore)
-    const passengerDocs: DiscountConfig[] = [];
-    if (passengerCol) {
-      const res = await databases.listDocuments(databaseId, passengerCol, []);
-      passengerDocs.push(
-        ...res.documents.map((doc: any) => ({
-          id: doc.$id,
-          passengerType: doc.passengerType,
-          // NOTE: busType intentionally omitted for passenger docs
-          discountPercentage:
-            doc.discountPercentage !== undefined &&
-            doc.discountPercentage !== null
-              ? String(doc.discountPercentage)
-              : "0",
-          description: doc.description || "",
-          active: !!doc.active,
-          createdAt: doc.$createdAt,
-        }))
-      );
-    }
-
-    // Bus type docs — convert multiplier(string) -> percentage(string) for UI
-    const busDocs: DiscountConfig[] = [];
-    if (busCol) {
-      const res2 = await databases.listDocuments(databaseId, busCol, []);
-      busDocs.push(
-        ...res2.documents.map((doc: any) => {
-          // Primary: multiplier (string). Back-compat: discountPercentage (percent) if present.
-          const pctString = doc.multiplier
-            ? toPctStrFromMultiplier(String(doc.multiplier))
-            : doc.discountPercentage !== undefined &&
-              doc.discountPercentage !== null
-            ? String(doc.discountPercentage)
-            : "0";
-
-          return {
-            id: doc.$id,
-            passengerType: BASE, // synthesized
-            busType: doc.busType,
-            discountPercentage: pctString, // UI uses this as uplift %
-            description: doc.description || "",
-            active: !!doc.active,
-            createdAt: doc.$createdAt,
-          };
-        })
-      );
-    }
+    const busDocs = (await listBusTypeDocs()).map((doc: any) => {
+      const pctString = doc.multiplier
+        ? toPctStrFromMultiplier(String(doc.multiplier))
+        : doc.discountPercentage !== undefined && doc.discountPercentage !== null
+        ? String(doc.discountPercentage)
+        : "0";
+      return {
+        id: doc.$id,
+        passengerType: BASE,
+        busType: doc.busType,
+        discountPercentage: pctString,
+        description: doc.description || "",
+        active: !!doc.active,
+        createdAt: doc.$createdAt,
+      } as DiscountConfig;
+    });
 
     return [...passengerDocs, ...busDocs];
   } catch (e) {
@@ -126,51 +128,41 @@ export async function saveDiscountConfiguration(
   data: Omit<DiscountConfig, "id" | "createdAt">
 ): Promise<string | null> {
   try {
-    const databaseId = config.databaseId!;
-    if (!databaseId) return null;
+    const db = getDatabaseId();
+    if (!db) return null;
 
-    // FIX: Treat as Bus Type if busType is provided (even if passengerType is empty),
-    // or if legacy sentinel BASE is used.
     const isBus =
-      (!!data.busType && !data.passengerType) ||
-      (data.passengerType || "").toUpperCase() === BASE;
-
-    const collectionId = isBus
-      ? getBusTypeCollectionId()
-      : getPassengerCollectionId();
-    if (!collectionId) return null;
+      !!String(data.busType ?? "").trim() || (data.passengerType || "").toUpperCase() === BASE;
 
     if (isBus) {
-      // Store multiplier as STRING in Bus Types collection
+      const busCol = getBusTypeCollectionId();
+      if (!busCol) {
+        console.error(
+          "saveDiscountConfiguration: Bus Types collection ID missing. Set config.busTypeCollectionId or EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID."
+        );
+        return null;
+      }
       const payload = {
-        busType: data.busType,
+        busType: String(data.busType || "Regular").trim(),
         multiplier: toMultiplierStrFromPct(data.discountPercentage ?? "0"),
         description: data.description || "",
         active: !!data.active,
       };
-      const res = await databases.createDocument(
-        databaseId,
-        collectionId,
-        ID.unique(),
-        payload
-      );
-      return res.$id || null;
-    } else {
-      // Passenger discounts stored WITHOUT busType
-      const payload = {
-        passengerType: data.passengerType,
-        discountPercentage: String(data.discountPercentage ?? "0"),
-        description: data.description || "",
-        active: !!data.active,
-      };
-      const res = await databases.createDocument(
-        databaseId,
-        collectionId,
-        ID.unique(),
-        payload
-      );
+      const res = await databases.createDocument(db, busCol, ID.unique(), payload);
       return res.$id || null;
     }
+
+    const passengerCol = getPassengerCollectionId();
+    if (!passengerCol) return null;
+
+    const payload = {
+      passengerType: data.passengerType,
+      discountPercentage: String(data.discountPercentage ?? "0"),
+      description: data.description || "",
+      active: !!data.active,
+    };
+    const res = await databases.createDocument(db, passengerCol, ID.unique(), payload);
+    return res.$id || null;
   } catch (e) {
     console.error("saveDiscountConfiguration error:", e);
     return null;
@@ -181,51 +173,37 @@ export async function updateDiscountConfiguration(
   id: string,
   data: Partial<Omit<DiscountConfig, "id" | "createdAt">>
 ): Promise<boolean> {
-  const databaseId = config.databaseId!;
-  if (!databaseId) return false;
+  const db = getDatabaseId();
+  if (!db) return false;
 
-  // Passenger payload (percentage string) — NO busType field anymore
   const passengerPayload: any = {};
-  if (data.passengerType !== undefined)
-    passengerPayload.passengerType = data.passengerType;
-  if (data.discountPercentage !== undefined) {
+  if (data.passengerType !== undefined) passengerPayload.passengerType = data.passengerType;
+  if (data.discountPercentage !== undefined)
     passengerPayload.discountPercentage = String(data.discountPercentage);
-  }
-  if (data.description !== undefined)
-    passengerPayload.description = data.description;
+  if (data.description !== undefined) passengerPayload.description = data.description;
   if (data.active !== undefined) passengerPayload.active = !!data.active;
 
-  // Bus payload (multiplier string)
   const busPayload: any = {};
   if (data.busType !== undefined) busPayload.busType = data.busType;
-  if (data.discountPercentage !== undefined) {
-    // Convert incoming percentage string from UI -> multiplier string
+  if (data.discountPercentage !== undefined)
     busPayload.multiplier = toMultiplierStrFromPct(data.discountPercentage);
-  }
   if (data.description !== undefined) busPayload.description = data.description;
   if (data.active !== undefined) busPayload.active = !!data.active;
 
-  // Try updating in Passenger collection first
   try {
     const passengerCol = getPassengerCollectionId();
     if (passengerCol) {
-      await databases.updateDocument(
-        databaseId,
-        passengerCol,
-        id,
-        passengerPayload
-      );
+      await databases.updateDocument(db, passengerCol, id, passengerPayload);
       return true;
     }
   } catch {
-    // fall through to try bus collection
+    // fallthrough
   }
 
-  // Then try Bus Types collection
   try {
     const busCol = getBusTypeCollectionId();
     if (busCol) {
-      await databases.updateDocument(databaseId, busCol, id, busPayload);
+      await databases.updateDocument(db, busCol, id, busPayload);
       return true;
     }
   } catch (e2) {
@@ -235,27 +213,24 @@ export async function updateDiscountConfiguration(
   return false;
 }
 
-export async function deleteDiscountConfiguration(
-  id: string
-): Promise<boolean> {
-  const databaseId = config.databaseId!;
-  if (!databaseId) return false;
+export async function deleteDiscountConfiguration(id: string): Promise<boolean> {
+  const db = getDatabaseId();
+  if (!db) return false;
 
-  // Try passenger collection first
   try {
     const passengerCol = getPassengerCollectionId();
     if (passengerCol) {
-      await databases.deleteDocument(databaseId, passengerCol, id);
+      await databases.deleteDocument(db, passengerCol, id);
       return true;
     }
   } catch {
-    // try bus col
+    // try bus col next
   }
 
   try {
     const busCol = getBusTypeCollectionId();
     if (busCol) {
-      await databases.deleteDocument(databaseId, busCol, id);
+      await databases.deleteDocument(db, busCol, id);
       return true;
     }
   } catch (e) {
@@ -265,49 +240,27 @@ export async function deleteDiscountConfiguration(
   return false;
 }
 
-// ---------- Queries / Helpers ----------
-
-/**
- * Get discount percentage for a passengerType.
- * Passenger discounts ONLY, now independent of bus type.
- */
-export async function getDiscountPercentage(
-  passengerType: string,
-  _busType?: string // ignored for backward compatibility
-): Promise<number> {
+// ---------------- Queries / Helpers ----------------
+export async function getDiscountPercentage(passengerType: string): Promise<number> {
   const all = await getDiscountConfigurations();
-
-  // Consider passenger-only (exclude BASE)
   const passengerOnly = all.filter((d) => d.active && d.passengerType !== BASE);
 
-  // 1) exact passengerType
   const exact = passengerOnly.find((d) => eq(d.passengerType, passengerType));
   if (exact) return clampPct(exact.discountPercentage);
 
-  // 2) fallback to Regular
   const regular = passengerOnly.find((d) => eq(d.passengerType, "Regular"));
   if (regular) return clampPct(regular.discountPercentage);
 
   return 0;
 }
 
-/**
- * Returns a de-duplicated list of bus types with an overall active flag.
- * Reads directly from the Bus Types collection.
- */
 export async function getBusTypeConfigurations(): Promise<
   Array<{ busType: string; active: boolean }>
 > {
-  const databaseId = config.databaseId!;
-  const busCol = getBusTypeCollectionId();
-  if (!databaseId || !busCol) {
-    return [{ busType: "Regular", active: true }];
-  }
-
   try {
-    const res = await databases.listDocuments(databaseId, busCol, []);
+    const docs = await listBusTypeDocs();
     const map: Record<string, boolean> = {};
-    for (const doc of res.documents) {
+    for (const doc of docs) {
       const key = (doc.busType || "Regular").trim();
       if (!map[key]) map[key] = false;
       if (doc.active) map[key] = true;
@@ -320,48 +273,33 @@ export async function getBusTypeConfigurations(): Promise<
   }
 }
 
-/**
- * Multiplier to uplift fares by bus type.
- * Reads from Bus Types collection: `multiplier` (string).
- * Back-compat: if a legacy `discountPercentage` exists, interpret it as uplift %.
- */
-export async function getBusTypeFareMultiplier(
-  busType: string
-): Promise<number> {
+export async function getBusTypeFareMultiplier(busType: string): Promise<number> {
   const FALLBACK: Record<string, number> = {
     Regular: 1.0,
-    Aircon: 1.2, // +20%
-    "Air-Conditioned": 1.2, // +20%
-    "Air Conditioned": 1.2, // +20%
-    Deluxe: 1.35, // +35%
-    Premium: 1.5, // +50%
+    Aircon: 1.2,
+    "Air-Conditioned": 1.2,
+    "Air Conditioned": 1.2,
+    Deluxe: 1.35,
+    Premium: 1.5,
   };
 
   const bt = (busType || "Regular").trim();
-  const databaseId = config.databaseId!;
-  const busCol = getBusTypeCollectionId();
 
-  if (databaseId && busCol) {
-    try {
-      const res = await databases.listDocuments(databaseId, busCol, []);
-      const match = res.documents.find((d: any) => eq(d.busType, bt));
-      if (match && match.active) {
-        if (match.multiplier) {
-          const m = Number(match.multiplier);
-          if (Number.isFinite(m) && m > 0) return m;
-        }
-        // Back-compat: legacy percent field
-        if (
-          match.discountPercentage !== undefined &&
-          match.discountPercentage !== null
-        ) {
-          const pct = clampPct(match.discountPercentage);
-          return 1 + pct / 100;
-        }
+  try {
+    const docs = await listBusTypeDocs();
+    const match = docs.find((d: any) => eq(d.busType, bt));
+    if (match && match.active) {
+      if (match.multiplier) {
+        const m = Number(match.multiplier);
+        if (Number.isFinite(m) && m > 0) return m;
       }
-    } catch (e) {
-      console.warn("getBusTypeFareMultiplier error (fallback used):", e);
+      if (match.discountPercentage !== undefined && match.discountPercentage !== null) {
+        const pct = clampPct(match.discountPercentage);
+        return 1 + pct / 100;
+      }
     }
+  } catch (e) {
+    console.warn("getBusTypeFareMultiplier error (fallback used):", e);
   }
   return FALLBACK[bt] ?? 1.0;
 }
