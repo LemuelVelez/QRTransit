@@ -20,6 +20,7 @@ import {
   getPendingRemittances,
   hasUnremittedRevenue,
   getConductorRevenue,
+  getUnremittedCashByBus, // ✅ NEW import
 } from "@/lib/cash-remittance-service"
 import RemittanceModal from "@/components/remittance-modal"
 
@@ -30,7 +31,7 @@ interface BusWithRevenue {
   to: string
   active: boolean
   cashRevenue: number
-  status: "pending" | "remitted" | "none" | "can_remit" // Changed from remittanceStatus to status
+  status: "pending" | "remitted" | "none" | "can_remit"
   remittanceAmount?: string
   remittanceTimestamp?: string
   verificationTimestamp?: string
@@ -50,22 +51,17 @@ export default function ManageRemittanceScreen() {
   useEffect(() => {
     async function checkAccess() {
       try {
-        // Check if user has conductor role specifically
         const hasPermission = await checkRoutePermission("conductor")
-
         if (!hasPermission) {
           Alert.alert("Access Denied", "You don't have permission to access this screen.")
           router.replace("/")
           return
         }
 
-        // Load conductor info
         try {
           const user = await getCurrentUser()
           if (user) {
             setConductorId(user.$id || "")
-
-            // Set conductor name from firstname and lastname
             if (user.firstname && user.lastname) {
               setConductorName(`${user.firstname} ${user.lastname}`)
             } else if (user.username) {
@@ -75,11 +71,6 @@ export default function ManageRemittanceScreen() {
             } else {
               setConductorName("Conductor")
             }
-
-            // Get the correct total revenue
-            const revenue = await getConductorRevenue(user.$id || "")
-            setTotalRevenue(revenue)
-
             await loadBuses(user.$id || "")
           }
         } catch (userError) {
@@ -95,65 +86,50 @@ export default function ManageRemittanceScreen() {
     checkAccess()
   }, [])
 
-  // Updated to use the correct revenue value
   const loadBuses = async (id: string) => {
     try {
       setLoading(true)
 
-      // Get all routes for this conductor
       const routes = await getAllRoutes(id)
+      await getPendingRemittances(id) // (kept; no UI change here but ensures pending cache fresh)
 
-      // Get pending remittances
-      const pendingRemittances = await getPendingRemittances(id)
+      // Compute per-bus unremitted CASH revenue from trips (existing fields), then total = sum
+      const busesWithRevenue: BusWithRevenue[] = []
+      for (const route of routes) {
+        // Real per-bus revenue (uses trip.busNumber + paymentMethod === "Cash" and cutoff after last verification)
+        const busRevenue = await getUnremittedCashByBus(id, route.busNumber)
 
-      // Get the correct total revenue
-      const revenue = await getConductorRevenue(id)
-      setTotalRevenue(revenue)
+        const remittance = await getRemittanceStatus(route.id || "", id)
+        const canRemit = await hasUnremittedRevenue(route.id || "", id)
 
-      // Calculate revenue per bus (divide total revenue by number of buses)
-      const revenuePerBus = routes.length > 0 ? revenue / routes.length : 0
+        let status: "pending" | "remitted" | "none" | "can_remit" = "none"
+        if (remittance) {
+          if (remittance.status === "pending") status = "pending"
+          else if (remittance.status === "remitted" && canRemit) status = "can_remit"
+          else if (remittance.status === "remitted") status = "remitted"
+        } else if (canRemit) {
+          status = "can_remit"
+        }
 
-      // Transform routes to include revenue and remittance status
-      const busesWithRevenue: BusWithRevenue[] = await Promise.all(
-        routes.map(async (route) => {
-          // Check remittance status for this bus
-          const remittance = await getRemittanceStatus(route.id || "", id)
-
-          // Check if bus has unremitted revenue (can create new remittance)
-          const canRemit = await hasUnremittedRevenue(route.id || "", id)
-
-          // Determine the remittance status
-          let status: "pending" | "remitted" | "none" | "can_remit" = "none"
-
-          if (remittance) {
-            if (remittance.status === "pending") {
-              status = "pending"
-            } else if (remittance.status === "remitted" && canRemit) {
-              // If remitted but has new unremitted revenue
-              status = "can_remit"
-            } else if (remittance.status === "remitted") {
-              status = "remitted"
-            }
-          } else if (canRemit) {
-            status = "can_remit"
-          }
-
-          return {
-            id: route.id || "",
-            busNumber: route.busNumber,
-            from: route.from,
-            to: route.to,
-            active: route.active === true,
-            cashRevenue: revenuePerBus, // Use calculated revenue per bus
-            status: status, // Changed from remittanceStatus to status
-            remittanceAmount: remittance?.amount,
-            remittanceTimestamp: remittance?.timestamp,
-            verificationTimestamp: remittance?.verificationTimestamp,
-          }
-        }),
-      )
+        busesWithRevenue.push({
+          id: route.id || "",
+          busNumber: route.busNumber,
+          from: route.from,
+          to: route.to,
+          active: route.active === true,
+          cashRevenue: busRevenue, // ✅ real revenue per bus
+          status,
+          remittanceAmount: remittance?.amount,
+          remittanceTimestamp: remittance?.timestamp,
+          verificationTimestamp: remittance?.verificationTimestamp,
+        })
+      }
 
       setBuses(busesWithRevenue)
+
+      // Also compute total across all buses using existing fields
+      const overall = await getConductorRevenue(id)
+      setTotalRevenue(overall)
     } catch (error) {
       console.error("Error loading buses:", error)
       Alert.alert("Error", "Failed to load bus information.")
@@ -164,9 +140,7 @@ export default function ManageRemittanceScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    if (conductorId) {
-      await loadBuses(conductorId)
-    }
+    if (conductorId) await loadBuses(conductorId)
     setRefreshing(false)
   }, [conductorId])
 
@@ -183,7 +157,6 @@ export default function ManageRemittanceScreen() {
 
   const formatDate = (timestamp?: string) => {
     if (!timestamp) return "N/A"
-
     const date = new Date(Number(timestamp))
     return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
@@ -206,7 +179,7 @@ export default function ManageRemittanceScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      {/* Header with back button */}
+      {/* Header */}
       <View className="flex-row items-center justify-between px-4 pt-16 pb-2">
         <TouchableOpacity onPress={() => router.back()} className="p-2">
           <Ionicons name="arrow-back" size={24} color="white" />
@@ -217,7 +190,7 @@ export default function ManageRemittanceScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Total Revenue Card */}
+      {/* Total Revenue */}
       <View className="mx-4 mb-4">
         <View className="bg-emerald-700 rounded-lg p-4">
           <Text className="text-white text-sm">Total Revenue</Text>
@@ -266,32 +239,34 @@ export default function ManageRemittanceScreen() {
               <View className="flex-row justify-between mb-3">
                 <Text className="text-gray-600">Status:</Text>
                 <View
-                  className={`px-2 py-1 rounded-full ${bus.status === "remitted"
-                    ? "bg-green-100"
-                    : bus.status === "pending"
+                  className={`px-2 py-1 rounded-full ${
+                    bus.status === "remitted"
+                      ? "bg-green-100"
+                      : bus.status === "pending"
                       ? "bg-yellow-100"
                       : bus.status === "can_remit"
-                        ? "bg-blue-100"
-                        : "bg-gray-100"
-                    }`}
+                      ? "bg-blue-100"
+                      : "bg-gray-100"
+                  }`}
                 >
                   <Text
-                    className={`text-xs ${bus.status === "remitted"
-                      ? "text-green-600"
-                      : bus.status === "pending"
+                    className={`text-xs ${
+                      bus.status === "remitted"
+                        ? "text-green-600"
+                        : bus.status === "pending"
                         ? "text-yellow-600"
                         : bus.status === "can_remit"
-                          ? "text-blue-600"
-                          : "text-gray-600"
-                      }`}
+                        ? "text-blue-600"
+                        : "text-gray-600"
+                    }`}
                   >
                     {bus.status === "remitted"
                       ? "Remitted"
                       : bus.status === "pending"
-                        ? "Awaiting Verification"
-                        : bus.status === "can_remit"
-                          ? "New Revenue to Remit"
-                          : "Not Remitted"}
+                      ? "Awaiting Verification"
+                      : bus.status === "can_remit"
+                      ? "New Revenue to Remit"
+                      : "Not Remitted"}
                   </Text>
                 </View>
               </View>
@@ -321,12 +296,13 @@ export default function ManageRemittanceScreen() {
               ) : null}
 
               <TouchableOpacity
-                className={`py-2 px-4 rounded-lg ${bus.status === "pending"
-                  ? "bg-gray-200"
-                  : bus.status === "can_remit" || bus.status === "none"
+                className={`py-2 px-4 rounded-lg ${
+                  bus.status === "pending"
+                    ? "bg-gray-200"
+                    : bus.status === "can_remit" || bus.status === "none"
                     ? "bg-emerald-500"
                     : "bg-blue-500"
-                  }`}
+                }`}
                 onPress={() => handleRemit(bus)}
                 disabled={bus.status === "pending"}
               >
@@ -334,8 +310,8 @@ export default function ManageRemittanceScreen() {
                   {bus.status === "pending"
                     ? "Awaiting Verification"
                     : bus.status === "remitted"
-                      ? "Submit New Remittance"
-                      : "Submit Remittance"}
+                    ? "Submit New Remittance"
+                    : "Submit Remittance"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -343,7 +319,6 @@ export default function ManageRemittanceScreen() {
         )}
       </ScrollView>
 
-      {/* Remittance Modal */}
       {selectedBus && (
         <RemittanceModal
           visible={showRemittanceModal}
@@ -362,4 +337,3 @@ export default function ManageRemittanceScreen() {
     </View>
   )
 }
-
