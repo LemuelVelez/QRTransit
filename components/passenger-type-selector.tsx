@@ -1,3 +1,4 @@
+// components/passenger-type-selector.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -8,56 +9,71 @@ import { getDiscountConfigurations } from "@/lib/discount-service"
 interface PassengerTypeSelectorProps {
   value: string
   onChange: (type: string) => void
-  busType?: string
 }
 
-export default function PassengerTypeSelector({ value, onChange, busType = "Regular" }: PassengerTypeSelectorProps) {
+export default function PassengerTypeSelector({ value, onChange }: PassengerTypeSelectorProps) {
   const [showDropdown, setShowDropdown] = useState(false)
   const [passengerTypes, setPassengerTypes] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch passenger types from discounts
+  // Fetch passenger types from discounts (passenger-only, no bus type dependency)
   useEffect(() => {
+    let isMounted = true
+
     async function fetchPassengerTypes() {
       try {
         setLoading(true)
         setError(null)
 
-        // Get all discount configurations
         const discounts = await getDiscountConfigurations()
 
+        // Keep only active passenger discounts (exclude bus-type rules which have busType present)
         const types = discounts
-          .filter((discount) => discount.active && discount.busType === busType)
-          .map((discount) => discount.passengerType)
+          .filter((d: any) => d?.active && !d?.busType)
+          .map((d: any) => String(d?.passengerType || "").trim())
+          .filter((t: string) => t.length > 0)
 
-        // Remove duplicates
-        const uniqueTypes = Array.from(new Set(types))
+        // Deduplicate
+        const unique = Array.from(new Set(types))
 
-        // Add "Regular" as default option if not already included
-        if (!uniqueTypes.includes("Regular")) {
-          uniqueTypes.unshift("Regular")
-        }
+        // Ensure "Regular" exists and is shown first
+        if (!unique.includes("Regular")) unique.unshift("Regular")
 
-        setPassengerTypes(uniqueTypes)
+        // Optional: sort remaining alphabetically, keeping "Regular" on top
+        const sorted = ["Regular", ...unique.filter((t) => t !== "Regular").sort((a, b) => a.localeCompare(b))]
+
+        if (!isMounted) return
+        setPassengerTypes(sorted)
 
         // If current value is not in the list and we have types, update the value
-        if (uniqueTypes.length > 0 && !uniqueTypes.includes(value)) {
-          onChange(uniqueTypes[0])
+        if (sorted.length > 0 && !sorted.includes(value)) {
+          onChange(sorted[0])
         }
       } catch (err) {
         console.error("Error fetching passenger types:", err)
+        if (!isMounted) return
         setError("Failed to load passenger types")
-        // Fallback to default types
-        const defaultTypes = ["Regular", "Student", "Senior citizen", "Person's with Disabilities"]
-        setPassengerTypes(defaultTypes)
+
+        // Fallback types
+        const fallback = ["Regular", "Student", "Senior citizen", "Person's with Disabilities"]
+        setPassengerTypes(fallback)
+
+        if (!fallback.includes(value)) {
+          onChange(fallback[0])
+        }
       } finally {
-        setLoading(false)
+        if (isMounted) setLoading(false)
       }
     }
 
     fetchPassengerTypes()
-  }, [value, onChange, busType])
+    return () => {
+      isMounted = false
+    }
+    // We intentionally depend only on `value` and `onChange`.
+    // The parent will force a re-mount via changing `key` when it needs a refresh.
+  }, [value, onChange])
 
   const handleSelect = (type: string) => {
     onChange(type)
@@ -79,13 +95,6 @@ export default function PassengerTypeSelector({ value, onChange, busType = "Regu
           <Text>Loading passenger types...</Text>
           <ActivityIndicator size="small" color="#10b981" />
         </View>
-      ) : error ? (
-        <View className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md">
-          <Text className="text-red-500">{error}</Text>
-          <TouchableOpacity onPress={() => setShowDropdown(!showDropdown)}>
-            <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={24} color="black" />
-          </TouchableOpacity>
-        </View>
       ) : (
         <TouchableOpacity
           className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md"
@@ -94,6 +103,12 @@ export default function PassengerTypeSelector({ value, onChange, busType = "Regu
           <Text>{value}</Text>
           <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={24} color="black" />
         </TouchableOpacity>
+      )}
+
+      {error && !loading && (
+        <View className="w-full p-3 bg-red-50">
+          <Text className="text-sm text-red-500">{error}</Text>
+        </View>
       )}
 
       {showDropdown && passengerTypes.length > 0 && (
@@ -110,12 +125,10 @@ export default function PassengerTypeSelector({ value, onChange, busType = "Regu
         </View>
       )}
 
-      {showDropdown && passengerTypes.length === 0 && (
+      {showDropdown && !loading && passengerTypes.length === 0 && (
         <View className="absolute z-20 w-full top-full">
           <View className="w-full p-4 bg-white border-t border-gray-200">
-            <Text className="italic text-gray-500">
-              No passenger types available for {busType} buses. Please create discounts first.
-            </Text>
+            <Text className="italic text-gray-500">No passenger types available. Please create discounts first.</Text>
           </View>
         </View>
       )}
