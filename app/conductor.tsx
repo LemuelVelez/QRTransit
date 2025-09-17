@@ -34,6 +34,59 @@ import { saveTrip, generateTripId } from "@/lib/trips-service"
 import { calculateDistance } from "@/lib/google-maps-service"
 import { getDiscountPercentage, getBusTypeFareMultiplier } from "@/lib/discount-service"
 
+/** ✅ Canonicalize bus type so lookups work consistently */
+const CANONICAL_ORDER = ["Regular", "Air-Conditioned", "Deluxe"] as const
+type CanonicalBusType = (typeof CANONICAL_ORDER)[number]
+function normalizeBusType(raw: string): CanonicalBusType | string {
+  const s = (raw ?? "").toString().trim().toLowerCase()
+  if (
+    s === "ac" ||
+    s === "a/c" ||
+    s === "aircon" ||
+    s === "air-con" ||
+    s === "air con" ||
+    s === "air conditioned" ||
+    s === "air-conditioned" ||
+    (s.includes("air") && (s.includes("con") || s.includes("condition")))
+  ) return "Air-Conditioned"
+  if (s === "regular") return "Regular"
+  if (s === "deluxe") return "Deluxe"
+  return raw
+}
+
+/** ✅ Robust multiplier resolver:
+ * Tries common synonyms for backend keys; if backend returns 1 (same as Regular),
+ * apply sensible fallbacks so AC/Deluxe aren't priced like Regular.
+ * (Fallbacks only apply if service doesn't provide a >1 multiplier.)
+ */
+async function getFareMultiplierSafe(busTypeCanonical: string): Promise<number> {
+  const candidates = [
+    busTypeCanonical,
+    busTypeCanonical.replace("-", " "),
+    busTypeCanonical.replace(/-/g, " "),
+    busTypeCanonical.toLowerCase(),
+    busTypeCanonical.toUpperCase(),
+    busTypeCanonical === "Air-Conditioned" ? "Air Conditioned" : null,
+    busTypeCanonical === "Air-Conditioned" ? "AC" : null,
+  ].filter(Boolean) as string[]
+
+  for (const key of candidates) {
+    try {
+      const mult = await getBusTypeFareMultiplier(key)
+      if (typeof mult === "number" && mult > 0 && Math.abs(mult - 1) > 1e-9) {
+        return mult
+      }
+    } catch {
+      // ignore and try next candidate
+    }
+  }
+
+  // Last-resort fallbacks ONLY if service didn't give a distinct multiplier
+  if (busTypeCanonical === "Air-Conditioned") return 1.15
+  if (busTypeCanonical === "Deluxe") return 1.3
+  return 1
+}
+
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
   const [busType, setBusType] = useState("Regular")
@@ -82,12 +135,15 @@ export default function ConductorScreen() {
             const ratePerKm = 2.5
             const raw = baseFlagDown + result.distance * ratePerKm
 
+            // ✅ Ensure consistent keying for both discount + multiplier
+            const busTypeCanonical = String(normalizeBusType(busType))
+
             const [discPct, busMult] = await Promise.all([
-              getDiscountPercentage(passengerType, busType),
-              getBusTypeFareMultiplier(busType),
+              getDiscountPercentage(passengerType, busTypeCanonical),
+              getFareMultiplierSafe(busTypeCanonical),
             ])
 
-            let calculated = raw * busMult
+            let calculated = raw * (busMult || 1)
             calculated = calculated * (1 - (discPct || 0) / 100)
 
             setFare(`₱${calculated.toFixed(2)}`)
@@ -112,7 +168,7 @@ export default function ConductorScreen() {
       }
     }
 
-    const timeoutId = setTimeout(calculateDistanceAndFare, 1000)
+    const timeoutId = setTimeout(calculateDistanceAndFare, 500) // a bit snappier
     return () => clearTimeout(timeoutId)
   }, [from, to, passengerType, busType])
 
@@ -134,15 +190,16 @@ export default function ConductorScreen() {
     try {
       const activeRoute = await getActiveRoute(userId)
       if (activeRoute) {
+        const normalizedType = String(normalizeBusType(activeRoute.busType || "Regular"))
         setRouteInfo({
           from: activeRoute.from,
           to: activeRoute.to,
           busNumber: activeRoute.busNumber,
-          busType: activeRoute.busType || "Regular",
+          busType: normalizedType,
         })
         setFrom(activeRoute.from)
         setTo(activeRoute.to)
-        setBusType(activeRoute.busType || "Regular")
+        setBusType(normalizedType)
       } else {
         Alert.alert("No Active Route", "You don't have an active route. Please set up or activate a route.", [
           {
@@ -252,6 +309,14 @@ export default function ConductorScreen() {
     }
     setRefreshing(false)
   }, [conductorId, refreshPassengerTypes])
+
+  /** ✅ Auto-refresh when screen gains focus (updates route & lists) */
+  useFocusEffect(
+    useCallback(() => {
+      onRefresh()
+      return () => {}
+    }, [onRefresh]),
+  )
 
   const handleBarCodeScanned = ({ data }: BarcodeScanningResult) => {
     setScanned(true)
@@ -454,13 +519,6 @@ export default function ConductorScreen() {
     router.push({ pathname: "/conductor/manage-discounts" as any })
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      refreshPassengerTypes()
-      return () => {}
-    }, [refreshPassengerTypes]),
-  )
-
   useEffect(() => {
     if (needsRefresh) {
       refreshPassengerTypes()
@@ -577,24 +635,24 @@ export default function ConductorScreen() {
             )}
 
             <View style={styles.fareDisplayContainer}>
-              <View style={styles.fareRow}>
+              <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
                 <Text style={styles.fareLabel}>Bus Type:</Text>
                 <Text style={styles.fareValue}>{busType}</Text>
               </View>
 
-              <View style={styles.fareRow}>
+              <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
                 <Text style={styles.fareLabel}>Distance:</Text>
                 <Text style={styles.fareValue}>
                   {kilometer ? `${kilometer} km` : isCalculatingDistance ? "Calculating..." : "Enter locations"}
                 </Text>
               </View>
 
-              <View style={styles.fareRow}>
+              <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
                 <Text style={styles.fareLabel}>Passenger Type:</Text>
                 <Text style={styles.fareValue}>{passengerType}</Text>
               </View>
 
-              <View style={styles.fareRow}>
+              <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
                 <Text style={styles.fareLabel}>Per-Person Fare:</Text>
                 <Text style={styles.fareValue}>{fare || (isCalculatingDistance ? "Calculating..." : "₱0.00")}</Text>
               </View>

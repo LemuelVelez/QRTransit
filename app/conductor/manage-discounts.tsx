@@ -360,7 +360,7 @@ export default function ManageDiscountsScreen() {
 
                                     <View className="mb-3">
                                         <Text className="text-lg font-bold text-gray-800">{discount.passengerType}</Text>
-                                        <Text className="text-gray-600">Bus Type: {discount.busType || "Regular"}</Text>
+                                        <Text className="text-gray-600"> {discount.busType || "Regular"}</Text>
                                         <Text className="text-gray-600">Discount: {discount.discountPercentage}%</Text>
                                         {discount.description && <Text className="mt-1 text-gray-500">{discount.description}</Text>}
                                     </View>
@@ -397,7 +397,6 @@ export default function ManageDiscountsScreen() {
                             placeholder="e.g., Student, Senior Citizen"
                         />
 
-                        <Text className="mb-1 font-medium text-gray-700">Bus Type</Text>
                         <BusTypeSelector value={newDiscountBusType} onChange={setNewDiscountBusType} />
 
                         <Text className="mb-1 font-medium text-gray-700">Discount Percentage (%)</Text>

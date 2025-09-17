@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons"
 import { getCurrentUser } from "@/lib/appwrite"
 import { getAllRoutes, updateRoute, deleteRoute, type RouteInfo } from "@/lib/route-service"
 import RouteEditModal from "@/components/route-edit-modal"
+import BusTypeSelector from "@/components/bus-type-selector" // ✅ ADDED
 
 export default function ManageRoutesScreen() {
     const [loading, setLoading] = useState(true)
@@ -100,6 +101,28 @@ export default function ManageRoutesScreen() {
         } catch (error) {
             console.error("Error toggling route status:", error)
             Alert.alert("Error", "Failed to update route status")
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    // ✅ ADDED: Persist bus type change
+    const handleChangeBusType = async (route: RouteInfo, newType: string) => {
+        try {
+            if (!route.id) {
+                Alert.alert("Error", "Route ID is missing")
+                return
+            }
+            setLoading(true)
+            const success = await updateRoute(route.id, { busType: newType })
+            if (success) {
+                setRoutes(routes.map((r) => (r.id === route.id ? { ...r, busType: newType } : r)))
+            } else {
+                Alert.alert("Error", "Failed to update bus type")
+            }
+        } catch (error) {
+            console.error("Error updating bus type:", error)
+            Alert.alert("Error", "Failed to update bus type")
         } finally {
             setLoading(false)
         }
@@ -239,6 +262,14 @@ export default function ManageRoutesScreen() {
                                     {route.from} → {route.to}
                                 </Text>
                                 <Text className="text-gray-600">Bus #{route.busNumber} • {route.busType || "Regular"}</Text>
+                            </View>
+
+                            {/* ✅ ADDED: Inline bus type selector per route */}
+                            <View className="mb-3">
+                                <BusTypeSelector
+                                    value={route.busType || "Regular"}
+                                    onChange={(t) => handleChangeBusType(route, t)}
+                                />
                             </View>
 
                             <View className="flex-row justify-end">

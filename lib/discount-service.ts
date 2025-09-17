@@ -6,7 +6,7 @@ export interface DiscountConfig {
   id?: string;
   passengerType: string; // e.g., "Regular", "Student", "Senior", "PWD"
   busType: string; // e.g., "Regular", "Aircon", "Deluxe"
-  discountPercentage: number; // 0..100
+  discountPercentage: string; // 0..100
   description?: string;
   active: boolean;
   createdAt?: string;
@@ -27,7 +27,7 @@ export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
       id: doc.$id,
       passengerType: doc.passengerType,
       busType: doc.busType,
-      discountPercentage: Number(doc.discountPercentage) || 0,
+      discountPercentage: String(doc.discountPercentage) || 0,
       description: doc.description || "",
       active: !!doc.active,
       createdAt: doc.$createdAt,
@@ -49,7 +49,7 @@ export async function saveDiscountConfiguration(
     const payload = {
       passengerType: data.passengerType,
       busType: data.busType,
-      discountPercentage: Number(data.discountPercentage) || 0,
+      discountPercentage: String(data.discountPercentage) || 0,
       description: data.description || "",
       active: !!data.active,
     };
