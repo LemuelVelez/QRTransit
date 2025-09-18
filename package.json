@@ -103,6 +103,7 @@
       "metro": "0.81.0",
       "metro-config": "0.81.0",
       "metro-resolver": "0.81.0"
-    }
+    },
+    "react-native-css-interop": "0.1.22"
   }
 }
