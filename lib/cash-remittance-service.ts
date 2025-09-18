@@ -1,5 +1,6 @@
+// lib/cash-remittance-service.ts
 import { ID, Query } from "react-native-appwrite";
-import { databases, config, getEnv } from "./appwrite";
+import { databases, config } from "./appwrite";
 
 export interface CashRemittance {
   id?: string;
@@ -15,12 +16,16 @@ export interface CashRemittance {
   verificationTimestamp?: string;
 }
 
-// Collections (read via unified helper)
-const getCashRemittanceCollectionId = () =>
-  getEnv("EXPO_PUBLIC_APPWRITE_CASH_REMITTANCE_COLLECTION_ID") || "";
+// Read collection ids straight from Expo public env
+const CASH_REMITTANCE_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_CASH_REMITTANCE_COLLECTION_ID ?? "";
 
-const getTripsCollectionId = () =>
-  getEnv("EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID") || "";
+const TRIPS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID ?? "";
+
+// Collections (read via unified helpers)
+const getCashRemittanceCollectionId = () => CASH_REMITTANCE_COLLECTION_ID;
+const getTripsCollectionId = () => TRIPS_COLLECTION_ID;
 
 // Helpers
 const generateRevenueId = () =>

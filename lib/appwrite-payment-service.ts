@@ -1,9 +1,12 @@
 // lib/appwrite-payment-service.ts
 import { ID, Query } from "react-native-appwrite";
-import { databases, config, client, getEnv } from "./appwrite";
+import { databases, config, client } from "./appwrite";
 
-const getPaymentRequestsCollectionId = () =>
-  getEnv("EXPO_PUBLIC_APPWRITE_PAYMENT_REQUESTS_COLLECTION_ID") || "";
+// Read collection id straight from Expo public env
+const PAYMENT_REQUESTS_COLLECTION_ID =
+  process.env.EXPO_PUBLIC_APPWRITE_PAYMENT_REQUESTS_COLLECTION_ID ?? "";
+
+const getPaymentRequestsCollectionId = () => PAYMENT_REQUESTS_COLLECTION_ID;
 
 export interface PaymentRequest {
   id: string;
