@@ -67,7 +67,30 @@ export const account = new Account(client);
 export const databases = new Databases(client);
 export const storage = new Storage(client);
 
-// --------------- Everything below unchanged in logic, but safe ----------------
+// --------------- Helpers ---------------
+
+const ensureDbAndUsers = () => {
+  const databaseId = config.databaseId;
+  const usersCollectionId = config.usersCollectionId;
+  if (!databaseId || !usersCollectionId) {
+    throw new Error(
+      "Appwrite configuration missing (databaseId/usersCollectionId). " +
+        "Check EXPO_PUBLIC_APPWRITE_DATABASE_ID and EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID."
+    );
+  }
+  return { databaseId, usersCollectionId };
+};
+
+const ensureEndpointProject = () => {
+  if (!config.endpoint || !config.projectId) {
+    throw new Error(
+      "Appwrite client not configured (endpoint/projectId). " +
+        "Check EXPO_PUBLIC_APPWRITE_ENDPOINT and EXPO_PUBLIC_APPWRITE_PROJECT_ID."
+    );
+  }
+};
+
+// --------------- Auth / Users (safer) ---------------
 
 export async function registerUser(
   email: string,
@@ -78,6 +101,9 @@ export async function registerUser(
   phonenumber: string
 ) {
   try {
+    ensureEndpointProject();
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
     const newAccount = await account.create(
       ID.unique(),
       email,
@@ -89,8 +115,8 @@ export async function registerUser(
       await account.createEmailPasswordSession(email, password);
 
       await databases.createDocument(
-        config.databaseId!,
-        config.usersCollectionId!,
+        databaseId,
+        usersCollectionId,
         ID.unique(),
         {
           userId: newAccount.$id,
@@ -124,11 +150,12 @@ export async function registerUser(
 
 export async function loginUser(username: string, password: string) {
   try {
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("username", username)]
-    );
+    ensureEndpointProject();
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("username", username),
+    ]);
 
     if (users.documents.length === 0) {
       throw new Error("User not found");
@@ -184,21 +211,18 @@ export async function registerPin(pin: string) {
       pin
     );
 
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("userId", currentUser.$id),
+    ]);
     if (users.documents.length === 0)
       throw new Error("User document not found");
 
     const userDoc = users.documents[0];
-    await databases.updateDocument(
-      config.databaseId!,
-      config.usersCollectionId!,
-      userDoc.$id,
-      { pin: hashedPin }
-    );
+    await databases.updateDocument(databaseId, usersCollectionId, userDoc.$id, {
+      pin: hashedPin,
+    });
 
     return { ...currentUser, pin: hashedPin };
   } catch (error) {
@@ -213,11 +237,11 @@ export async function verifyPin(pin: string) {
     if (!currentUser || !currentUser.$id)
       throw new Error("No authenticated user found");
 
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("userId", currentUser.$id),
+    ]);
     if (users.documents.length === 0)
       throw new Error("User document not found");
 
@@ -241,11 +265,11 @@ export async function getPin() {
     if (!currentUser || !currentUser.$id)
       throw new Error("No authenticated user found");
 
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("userId", currentUser.$id),
+    ]);
     if (users.documents.length === 0)
       throw new Error("User document not found");
 
@@ -259,11 +283,18 @@ export async function getPin() {
 
 export async function getCurrentUser() {
   try {
+    // You can still get the auth account even if DB config is missing.
     const result = await account.get();
-    if (result.$id) {
+    if (!result?.$id) return null;
+
+    const databaseId = config.databaseId;
+    const usersCollectionId = config.usersCollectionId;
+
+    // If DB config is present, enrich with profile doc; otherwise, degrade gracefully.
+    if (databaseId && usersCollectionId) {
       const users = await databases.listDocuments(
-        config.databaseId!,
-        config.usersCollectionId!,
+        databaseId,
+        usersCollectionId,
         [Query.equal("userId", result.$id)]
       );
 
@@ -282,13 +313,27 @@ export async function getCurrentUser() {
         firstname: userData?.firstname,
         lastname: userData?.lastname,
         username: userData?.username,
-        email: userData?.email,
+        email: userData?.email ?? result.email,
         phonenumber: userData?.phonenumber,
         avatar: userAvatar,
       };
     }
 
-    return null;
+    // Fallback minimal object without DB fields
+    const name = (result.name || "").trim();
+    const userAvatar = avatar
+      .getInitials(name || result.email || "User")
+      .toString();
+
+    return {
+      ...result,
+      firstname: undefined,
+      lastname: undefined,
+      username: undefined,
+      email: result.email,
+      phonenumber: undefined,
+      avatar: userAvatar,
+    };
   } catch (error) {
     console.log(error);
     return null;
@@ -315,11 +360,11 @@ export async function updateUserProfile(
     if (!currentUser || !currentUser.$id)
       throw new Error("No authenticated user found");
 
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("userId", currentUser.$id),
+    ]);
     if (users.documents.length === 0)
       throw new Error("User document not found");
 
@@ -341,7 +386,9 @@ export async function updateUserProfile(
 
       if (currentUser.avatar) {
         try {
-          const fileIdMatch = currentUser.avatar.match(/files\/([^/]+)\/view/);
+          const fileIdMatch = String(currentUser.avatar).match(
+            /files\/([^/]+)\/view/
+          );
           if (fileIdMatch && fileIdMatch[1]) {
             const oldFileId = fileIdMatch[1];
             await storage.deleteFile(bucketId, oldFileId);
@@ -364,8 +411,8 @@ export async function updateUserProfile(
 
     const userDoc = users.documents[0];
     await databases.updateDocument(
-      config.databaseId!,
-      config.usersCollectionId!,
+      databaseId,
+      usersCollectionId,
       userDoc.$id,
       updateData
     );
@@ -397,11 +444,11 @@ export async function getUserRoleAndRedirect() {
     if (!currentUser || !currentUser.$id)
       throw new Error("No authenticated user found");
 
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("userId", currentUser.$id),
+    ]);
     if (users.documents.length === 0)
       throw new Error("User document not found");
 
@@ -426,11 +473,11 @@ export async function checkRoutePermission(requiredRole: string | string[]) {
     const currentUser = await getCurrentUser();
     if (!currentUser || !currentUser.$id) return false;
 
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
+    const { databaseId, usersCollectionId } = ensureDbAndUsers();
+
+    const users = await databases.listDocuments(databaseId, usersCollectionId, [
+      Query.equal("userId", currentUser.$id),
+    ]);
     if (users.documents.length === 0) return false;
 
     const userDocument = users.documents[0];

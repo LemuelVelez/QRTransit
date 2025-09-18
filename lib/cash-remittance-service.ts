@@ -313,3 +313,20 @@ export async function getUnremittedCashByBus(
     return 0;
   }
 }
+
+/** ✅ NEW: Provide the function your UI expects */
+export async function hasUnremittedRevenue(
+  conductorId: string,
+  busNumber?: string
+): Promise<boolean> {
+  try {
+    if (busNumber && busNumber.trim() !== "") {
+      const t = await getUnremittedCashByBus(conductorId, busNumber);
+      return t > 0;
+    }
+    const total = await getConductorRevenue(conductorId);
+    return total > 0;
+  } catch {
+    return false;
+  }
+}
