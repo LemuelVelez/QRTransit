@@ -10,39 +10,67 @@ import {
 import * as Crypto from "expo-crypto";
 import Constants from "expo-constants";
 
-/** Read EXPO_PUBLIC_* from process.env or from app.json/app.config.js "extra" */
-const readEnv = (key: string): string | undefined => {
-  // 1) EAS / bundler inlined values (preferred)
-  const v1 = (process.env as any)?.[key];
-  if (v1 != null) return String(v1);
+/**
+ * IMPORTANT:
+ * In production builds and EAS Update bundles, Expo inlines EXPO_PUBLIC_* ONLY
+ * when they are referenced with a literal property, e.g. process.env.EXPO_PUBLIC_FOO.
+ * Dynamic access like process.env[key] will NOT be inlined and will be undefined.
+ *
+ * We therefore read each public var using a literal access first, and only then fall
+ * back to expoConfig.extra (dev/classic builds).
+ */
 
-  // 2) Expo "extra" (dev/classic builds)
-  const extra =
-    (Constants?.expoConfig as any)?.extra ||
-    (Constants as any)?.manifest2?.extra ||
-    (Constants as any)?.manifest?.extra ||
-    {};
+const getExtra = (): Record<string, any> =>
+  (Constants?.expoConfig as any)?.extra ||
+  (Constants as any)?.manifest2?.extra ||
+  (Constants as any)?.manifest?.extra ||
+  {};
 
-  // Try both the exact key and the naked version without EXPO_PUBLIC_
-  const naked = key.replace(/^EXPO_PUBLIC_/, "");
-  const v2 = extra?.[key] ?? extra?.[naked];
-  return v2 != null ? String(v2) : undefined;
+const extra = getExtra();
+
+// ---- Read EXPO_PUBLIC_* with literal property access (build-time inlined) ----
+const ENV = {
+  EXPO_PUBLIC_APPWRITE_ENDPOINT:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_ENDPOINT ??
+    extra.EXPO_PUBLIC_APPWRITE_ENDPOINT ??
+    extra.APPWRITE_ENDPOINT, // allow naked alias if you had it in extra
+  EXPO_PUBLIC_APPWRITE_PROJECT_ID:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_PROJECT_ID ??
+    extra.EXPO_PUBLIC_APPWRITE_PROJECT_ID ??
+    extra.APPWRITE_PROJECT_ID,
+  EXPO_PUBLIC_APPWRITE_DATABASE_ID:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_DATABASE_ID ??
+    extra.EXPO_PUBLIC_APPWRITE_DATABASE_ID ??
+    extra.APPWRITE_DATABASE_ID,
+  EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID ??
+    extra.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID ??
+    extra.APPWRITE_USERS_COLLECTION_ID,
+  EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID ??
+    extra.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID ??
+    extra.APPWRITE_AVATAR_BUCKET_ID,
+  EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID ??
+    extra.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID ??
+    extra.APPWRITE_DISCOUNTS_COLLECTION_ID,
+  EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID:
+    (process.env as any).EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID ??
+    extra.EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID ??
+    extra.APPWRITE_BUS_TYPE_COLLECTION_ID,
 };
 
-// Re-export a safe getter for other modules
-export const getEnv = (key: string) => readEnv(key);
+const trim = (v?: string | null) =>
+  typeof v === "string" ? v.trim() : undefined;
 
 export const config = {
-  endpoint: readEnv("EXPO_PUBLIC_APPWRITE_ENDPOINT"),
-  projectId: readEnv("EXPO_PUBLIC_APPWRITE_PROJECT_ID"),
-  databaseId: readEnv("EXPO_PUBLIC_APPWRITE_DATABASE_ID"),
-  usersCollectionId: readEnv("EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID"),
-  avatarBucketId: readEnv("EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID"),
-  discountsCollectionId: readEnv(
-    "EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID"
-  ),
-  // Optional: separate bus type collection if you use one
-  busTypeCollectionId: readEnv("EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID"),
+  endpoint: trim(ENV.EXPO_PUBLIC_APPWRITE_ENDPOINT),
+  projectId: trim(ENV.EXPO_PUBLIC_APPWRITE_PROJECT_ID),
+  databaseId: trim(ENV.EXPO_PUBLIC_APPWRITE_DATABASE_ID),
+  usersCollectionId: trim(ENV.EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID),
+  avatarBucketId: trim(ENV.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID),
+  discountsCollectionId: trim(ENV.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID),
+  busTypeCollectionId: trim(ENV.EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID),
 };
 
 // ---- Safe client bootstrap (won’t crash if env is missing) ----
@@ -83,9 +111,14 @@ const ensureDbAndUsers = () => {
 
 const ensureEndpointProject = () => {
   if (!config.endpoint || !config.projectId) {
+    // Extra hint for common EAS pitfall without leaking secrets:
+    const hint = __DEV__
+      ? " Dev hint: In dev, values can come from app.json/app.config extra. In prod, only literal process.env.EXPO_PUBLIC_* are inlined."
+      : "";
     throw new Error(
       "Appwrite client not configured (endpoint/projectId). " +
-        "Check EXPO_PUBLIC_APPWRITE_ENDPOINT and EXPO_PUBLIC_APPWRITE_PROJECT_ID."
+        "Check EXPO_PUBLIC_APPWRITE_ENDPOINT and EXPO_PUBLIC_APPWRITE_PROJECT_ID." +
+        hint
     );
   }
 };
