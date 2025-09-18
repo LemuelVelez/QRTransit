@@ -2,11 +2,17 @@
 module.exports = function (api) {
     api.cache(true);
     return {
-      presets: ['babel-preset-expo'],
+      presets: [
+        'babel-preset-expo',
+        // If you're using NativeWind v4, use it as a PRESET (not a plugin):
+        'nativewind/babel',
+      ],
       plugins: [
+        // Expo Router belongs in plugins
         'expo-router/babel',
-        'nativewind/babel',         // keep only if you use NativeWind
-        'react-native-worklets/plugin', // MUST be last
+  
+        // Reanimated v3 uses the Worklets plugin – keep it LAST
+        'react-native-worklets/plugin',
       ],
     };
   };
