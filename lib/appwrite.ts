@@ -12,11 +12,11 @@ import Constants from "expo-constants";
 
 /** Read EXPO_PUBLIC_* from process.env or from app.json/app.config.js "extra" */
 const readEnv = (key: string): string | undefined => {
-  // 1) EAS-compiled env (preferred)
+  // 1) EAS / bundler inlined values (preferred)
   const v1 = (process.env as any)?.[key];
   if (v1 != null) return String(v1);
 
-  // 2) Fallback to Expo "extra" (dev/classic builds)
+  // 2) Expo "extra" (dev/classic builds)
   const extra =
     (Constants?.expoConfig as any)?.extra ||
     (Constants as any)?.manifest2?.extra ||
@@ -29,29 +29,45 @@ const readEnv = (key: string): string | undefined => {
   return v2 != null ? String(v2) : undefined;
 };
 
+// Re-export a safe getter for other modules
+export const getEnv = (key: string) => readEnv(key);
+
 export const config = {
   endpoint: readEnv("EXPO_PUBLIC_APPWRITE_ENDPOINT"),
   projectId: readEnv("EXPO_PUBLIC_APPWRITE_PROJECT_ID"),
   databaseId: readEnv("EXPO_PUBLIC_APPWRITE_DATABASE_ID"),
   usersCollectionId: readEnv("EXPO_PUBLIC_APPWRITE_USERS_COLLECTION_ID"),
   avatarBucketId: readEnv("EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID"),
-  discountsCollectionId: readEnv("EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID"),
-  // ✅ Dedicated Bus Types collection (robustly resolved)
+  discountsCollectionId: readEnv(
+    "EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID"
+  ),
+  // Optional: separate bus type collection if you use one
   busTypeCollectionId: readEnv("EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID"),
 };
 
+// ---- Safe client bootstrap (won’t crash if env is missing) ----
 export const client = new Client();
+
+try {
+  if (config.endpoint) client.setEndpoint(config.endpoint);
+  if (config.projectId) client.setProject(config.projectId);
+} catch (e) {
+  console.error("[Appwrite] Failed to initialize client:", e);
+}
+
 if (!config.endpoint || !config.projectId) {
+  // Keep this a warning; we *do not* throw here.
   console.warn(
-    "[Appwrite] Missing endpoint or projectId. Check your EXPO_PUBLIC_* vars or `extra` in app config."
+    "[Appwrite] Missing endpoint or projectId. Backend features will be disabled until configured."
   );
 }
-client.setEndpoint(config.endpoint as string).setProject(config.projectId as string);
 
 export const avatar = new Avatars(client);
 export const account = new Account(client);
 export const databases = new Databases(client);
 export const storage = new Storage(client);
+
+// --------------- Everything below unchanged in logic, but safe ----------------
 
 export async function registerUser(
   email: string,
@@ -119,7 +135,10 @@ export async function loginUser(username: string, password: string) {
     }
 
     const user = users.documents[0];
-    const session = await account.createEmailPasswordSession(user.email, password);
+    const session = await account.createEmailPasswordSession(
+      user.email,
+      password
+    );
 
     if (session) {
       const accountDetails = await account.get();
@@ -157,7 +176,8 @@ export async function logoutUser() {
 export async function registerPin(pin: string) {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.$id) throw new Error("No authenticated user found");
+    if (!currentUser || !currentUser.$id)
+      throw new Error("No authenticated user found");
 
     const hashedPin = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
@@ -169,7 +189,8 @@ export async function registerPin(pin: string) {
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    if (users.documents.length === 0) throw new Error("User document not found");
+    if (users.documents.length === 0)
+      throw new Error("User document not found");
 
     const userDoc = users.documents[0];
     await databases.updateDocument(
@@ -189,14 +210,16 @@ export async function registerPin(pin: string) {
 export async function verifyPin(pin: string) {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.$id) throw new Error("No authenticated user found");
+    if (!currentUser || !currentUser.$id)
+      throw new Error("No authenticated user found");
 
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    if (users.documents.length === 0) throw new Error("User document not found");
+    if (users.documents.length === 0)
+      throw new Error("User document not found");
 
     const userDocument = users.documents[0];
     if (!userDocument.pin) return false;
@@ -215,14 +238,16 @@ export async function verifyPin(pin: string) {
 export async function getPin() {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.$id) throw new Error("No authenticated user found");
+    if (!currentUser || !currentUser.$id)
+      throw new Error("No authenticated user found");
 
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    if (users.documents.length === 0) throw new Error("User document not found");
+    if (users.documents.length === 0)
+      throw new Error("User document not found");
 
     const userDocument = users.documents[0];
     return userDocument.pin || null;
@@ -247,7 +272,9 @@ export async function getCurrentUser() {
       const userAvatar = userData?.avatar
         ? userData.avatar
         : avatar
-            .getInitials(`${userData?.firstname || ""} ${userData?.lastname || ""}`)
+            .getInitials(
+              `${userData?.firstname || ""} ${userData?.lastname || ""}`
+            )
             .toString();
 
       return {
@@ -285,14 +312,16 @@ export async function updateUserProfile(
 ) {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.$id) throw new Error("No authenticated user found");
+    if (!currentUser || !currentUser.$id)
+      throw new Error("No authenticated user found");
 
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    if (users.documents.length === 0) throw new Error("User document not found");
+    if (users.documents.length === 0)
+      throw new Error("User document not found");
 
     const updateData: Record<string, any> = {};
     if (userData.firstname) updateData.firstname = userData.firstname;
@@ -323,7 +352,11 @@ export async function updateUserProfile(
       }
 
       const fileId = ID.unique();
-      const uploadResult = await storage.createFile(bucketId, fileId, avatarFile);
+      const uploadResult = await storage.createFile(
+        bucketId,
+        fileId,
+        avatarFile
+      );
       const fileUrl = storage.getFileView(bucketId, uploadResult.$id);
       updateData.avatar = fileUrl.href;
       avatarUrl = fileUrl.href;
@@ -361,14 +394,16 @@ export async function getCurrentSession() {
 export async function getUserRoleAndRedirect() {
   try {
     const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.$id) throw new Error("No authenticated user found");
+    if (!currentUser || !currentUser.$id)
+      throw new Error("No authenticated user found");
 
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("userId", currentUser.$id)]
     );
-    if (users.documents.length === 0) throw new Error("User document not found");
+    if (users.documents.length === 0)
+      throw new Error("User document not found");
 
     const userDocument = users.documents[0];
     const role = userDocument.role || "passenger";

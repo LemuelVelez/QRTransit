@@ -1,10 +1,9 @@
 // lib/appwrite-payment-service.ts
 import { ID, Query } from "react-native-appwrite";
-import { databases, config, client } from "./appwrite";
+import { databases, config, client, getEnv } from "./appwrite";
 
-const getPaymentRequestsCollectionId = () => {
-  return process.env.EXPO_PUBLIC_APPWRITE_PAYMENT_REQUESTS_COLLECTION_ID || "";
-};
+const getPaymentRequestsCollectionId = () =>
+  getEnv("EXPO_PUBLIC_APPWRITE_PAYMENT_REQUESTS_COLLECTION_ID") || "";
 
 export interface PaymentRequest {
   id: string;
@@ -219,23 +218,19 @@ export function subscribeToPaymentRequests(
   const databaseId = config.databaseId;
   const collectionId = getPaymentRequestsCollectionId();
 
-  if (!databaseId || !collectionId) {
-    console.error(
-      "Appwrite configuration missing: databaseId or collectionId is empty"
-    );
+  // Don’t even try realtime if the client isn’t configured
+  if (!config.endpoint || !config.projectId || !databaseId || !collectionId) {
+    console.warn("[Appwrite] Realtime disabled (missing configuration).");
     return () => {};
   }
 
-  // ✅ Use document-level channel (prevents null id in server’s realtime getDocument)
+  // ✅ Use collection-level channel
   const channel = `databases.${databaseId}.collections.${collectionId}.documents.*`;
 
   try {
     const unsubscribe = client.subscribe(channel, (response: any) => {
       const document = response?.payload;
-      if (!document || typeof document.$id !== "string") {
-        // No document in payload; nothing to do.
-        return;
-      }
+      if (!document || typeof document.$id !== "string") return;
 
       // Filter by role ownership before invoking the callback
       const matchesRole =

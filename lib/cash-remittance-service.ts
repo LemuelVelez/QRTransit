@@ -1,5 +1,5 @@
 import { ID, Query } from "react-native-appwrite";
-import { databases, config } from "./appwrite";
+import { databases, config, getEnv } from "./appwrite";
 
 export interface CashRemittance {
   id?: string;
@@ -15,12 +15,12 @@ export interface CashRemittance {
   verificationTimestamp?: string;
 }
 
-// Collections
+// Collections (read via unified helper)
 const getCashRemittanceCollectionId = () =>
-  process.env.EXPO_PUBLIC_APPWRITE_CASH_REMITTANCE_COLLECTION_ID || "";
+  getEnv("EXPO_PUBLIC_APPWRITE_CASH_REMITTANCE_COLLECTION_ID") || "";
 
 const getTripsCollectionId = () =>
-  process.env.EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID || "";
+  getEnv("EXPO_PUBLIC_APPWRITE_TRIPS_COLLECTION_ID") || "";
 
 // Helpers
 const generateRevenueId = () =>
@@ -39,7 +39,9 @@ function parseAmount(v: any): number {
  * Latest verification cutoff across all buses for this conductor.
  * Trips AFTER this timestamp are considered "unremitted".
  */
-async function getLatestVerificationCutoff(conductorId: string): Promise<number> {
+async function getLatestVerificationCutoff(
+  conductorId: string
+): Promise<number> {
   try {
     const databaseId = config.databaseId;
     const col = getCashRemittanceCollectionId();
@@ -66,7 +68,8 @@ export async function submitCashRemittance(
   try {
     const databaseId = config.databaseId;
     const collectionId = getCashRemittanceCollectionId();
-    if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !collectionId)
+      throw new Error("Appwrite configuration missing");
 
     const timestamp = Date.now().toString();
     const data = {
@@ -76,7 +79,12 @@ export async function submitCashRemittance(
       status: "pending" as const,
     };
 
-    const result = await databases.createDocument(databaseId, collectionId, ID.unique(), data);
+    const result = await databases.createDocument(
+      databaseId,
+      collectionId,
+      ID.unique(),
+      data
+    );
     return result.$id;
   } catch (error) {
     console.error("Error submitting cash remittance:", error);
@@ -91,12 +99,19 @@ export async function updateRemittanceStatus(
   try {
     const databaseId = config.databaseId;
     const collectionId = getCashRemittanceCollectionId();
-    if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !collectionId)
+      throw new Error("Appwrite configuration missing");
 
     const update: Record<string, any> = { status };
-    if (status === "remitted") update.verificationTimestamp = Date.now().toString();
+    if (status === "remitted")
+      update.verificationTimestamp = Date.now().toString();
 
-    await databases.updateDocument(databaseId, collectionId, remittanceId, update);
+    await databases.updateDocument(
+      databaseId,
+      collectionId,
+      remittanceId,
+      update
+    );
     return true;
   } catch (error) {
     console.error("Error updating remittance status:", error);
@@ -111,7 +126,8 @@ export async function getRemittanceStatus(
   try {
     const databaseId = config.databaseId;
     const collectionId = getCashRemittanceCollectionId();
-    if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !collectionId)
+      throw new Error("Appwrite configuration missing");
 
     const res = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("busId", busId),
@@ -142,11 +158,14 @@ export async function getRemittanceStatus(
   }
 }
 
-export async function getRemittanceHistory(conductorId: string): Promise<CashRemittance[]> {
+export async function getRemittanceHistory(
+  conductorId: string
+): Promise<CashRemittance[]> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getCashRemittanceCollectionId();
-    if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !collectionId)
+      throw new Error("Appwrite configuration missing");
 
     const res = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
@@ -172,7 +191,9 @@ export async function getRemittanceHistory(conductorId: string): Promise<CashRem
   }
 }
 
-export async function getTotalRemittedAmount(_conductorId: string): Promise<string> {
+export async function getTotalRemittedAmount(
+  _conductorId: string
+): Promise<string> {
   try {
     // Not required for the fix; leaving as simple placeholder.
     return "0.00";
@@ -182,11 +203,14 @@ export async function getTotalRemittedAmount(_conductorId: string): Promise<stri
   }
 }
 
-export async function getPendingRemittances(conductorId: string): Promise<CashRemittance[]> {
+export async function getPendingRemittances(
+  conductorId: string
+): Promise<CashRemittance[]> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getCashRemittanceCollectionId();
-    if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !collectionId)
+      throw new Error("Appwrite configuration missing");
 
     const res = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
@@ -216,11 +240,14 @@ export async function getPendingRemittances(conductorId: string): Promise<CashRe
 /**
  * Sum unremitted CASH trips for the conductor (across all buses) using existing string fields.
  */
-export async function getConductorRevenue(conductorId: string): Promise<number> {
+export async function getConductorRevenue(
+  conductorId: string
+): Promise<number> {
   try {
     const databaseId = config.databaseId;
     const tripsCol = getTripsCollectionId();
-    if (!databaseId || !tripsCol) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !tripsCol)
+      throw new Error("Appwrite configuration missing");
 
     const cutoff = await getLatestVerificationCutoff(conductorId);
 
@@ -258,7 +285,8 @@ export async function getUnremittedCashByBus(
   try {
     const databaseId = config.databaseId;
     const tripsCol = getTripsCollectionId();
-    if (!databaseId || !tripsCol) throw new Error("Appwrite configuration missing");
+    if (!databaseId || !tripsCol)
+      throw new Error("Appwrite configuration missing");
 
     const cutoff = await getLatestVerificationCutoff(conductorId);
 
@@ -283,40 +311,5 @@ export async function getUnremittedCashByBus(
   } catch (error) {
     console.error("Error getting unremitted cash by bus:", error);
     return 0;
-  }
-}
-
-export async function hasUnremittedRevenue(
-  busId: string,
-  conductorId: string
-): Promise<boolean> {
-  try {
-    const databaseId = config.databaseId;
-    const collectionId = getCashRemittanceCollectionId();
-    if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing");
-
-    const res = await databases.listDocuments(databaseId, collectionId, [
-      Query.equal("busId", busId),
-      Query.equal("conductorId", conductorId),
-      Query.orderDesc("timestamp"),
-      Query.limit(1),
-    ]);
-
-    if (res.documents.length === 0) return true;
-    const latest = res.documents[0];
-    return latest.status === "remitted";
-  } catch (error) {
-    console.error("Error checking unremitted revenue:", error);
-    return false;
-  }
-}
-
-export async function resetRevenueAfterRemittance(_conductorId: string): Promise<boolean> {
-  try {
-    // Cutoff logic handled via verificationTimestamp; nothing to reset in trips.
-    return true;
-  } catch (error) {
-    console.error("Error resetting revenue:", error);
-    return false;
   }
 }
