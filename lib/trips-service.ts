@@ -17,6 +17,7 @@ export interface Trip {
   totalTrips?: string;
   totalPassengers?: string; // source of truth for group size
   busNumber?: string;
+  busType?: string; // ✅ added
 
   // Back-compat + explicit fields
   passengerCount?: string; // kept for backward compatibility
@@ -135,6 +136,7 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
         kilometer: doc.kilometer,
         totalTrips: doc.totalTrips,
         busNumber: doc.busNumber,
+        busType: doc.busType ?? "Regular", // ✅ pass through
       } as Trip;
     });
   } catch (error) {
@@ -184,6 +186,7 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
       kilometer: document.kilometer,
       totalTrips: document.totalTrips,
       busNumber: document.busNumber,
+      busType: document.busType ?? "Regular", // ✅ pass through
     } as Trip;
   } catch (error) {
     console.error("Error getting trip details:", error);
@@ -232,9 +235,10 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
       kilometer: trip.kilometer ?? "0",
       totalTrips: "1",
       busNumber: trip.busNumber ?? "",
+      busType: trip.busType ?? "Regular", // ✅ save it
     };
 
-    // Create robustly, stripping unknown fields if schema lags
+    // Create robustly, stripping unknown fields if schema lags (but we re-send busType next time)
     const newId = await createDocumentWithSchemaFallback(
       databaseId,
       collectionId,
@@ -297,6 +301,7 @@ export async function getTripsByDateRange(
         kilometer: doc.kilometer,
         totalTrips: doc.totalTrips,
         busNumber: doc.busNumber,
+        busType: doc.busType ?? "Regular", // ✅ pass through
       } as Trip;
     });
   } catch (error) {

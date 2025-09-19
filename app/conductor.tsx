@@ -27,6 +27,7 @@ import {
   createPaymentRequest,
   subscribeToPaymentRequests,
   updatePaymentRequestStatus,
+  getPaymentRequest,
   type PaymentRequest,
 } from "@/lib/appwrite-payment-service"
 import { Ionicons } from "@expo/vector-icons"
@@ -37,12 +38,12 @@ import { getDiscountPercentage, getBusTypeFareMultiplier } from "@/lib/discount-
 
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
-  const [busType, setBusType] = useState("Regular") // selected from BusTypeSelector (backend-driven)
+  const [busType, setBusType] = useState("Regular")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [kilometer, setKilometer] = useState("")
-  const [fare, setFare] = useState("") // per-person fare
-  const [ticketCount, setTicketCount] = useState<number>(1) // UI uses number for stepper
+  const [fare, setFare] = useState("")
+  const [ticketCount, setTicketCount] = useState<number>(1)
 
   const [showQrScanner, setShowQrScanner] = useState(false)
   const [showCameraCapture, setShowCameraCapture] = useState(false)
@@ -69,10 +70,17 @@ export default function ConductorScreen() {
 
   const [showPaymentConfirmation, setShowPaymentConfirmation] = useState(false)
   const [passengerData, setPassengerData] = useState<{ userId: string; name: string } | null>(null)
+
+  // Spinner state for the dialog; we now keep this true from Confirm until completed/declined/expired.
   const [isProcessingPayment, setIsProcessingPayment] = useState(false)
+
   const [currentPaymentRequest, setCurrentPaymentRequest] = useState<PaymentRequest | null>(null)
 
+  // Refs for robust flow control
+  const currentRequestIdRef = useRef<string | null>(null)
+  const chargedRef = useRef<boolean>(false) // ensure charge happens exactly once
   const subscriptionRef = useRef<(() => void) | null>(null)
+  const pollRef = useRef<NodeJS.Timeout | null>(null)
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const router = useRouter()
@@ -207,30 +215,91 @@ export default function ConductorScreen() {
     checkAccess()
     return () => {
       if (subscriptionRef.current) subscriptionRef.current()
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [])
+
+  // Realtime listener: begin charging when we SEE "approved"; stop processing only when completed/declined/expired.
+  useEffect(() => {
+    if (!conductorId) return
+    if (subscriptionRef.current) {
+      subscriptionRef.current()
+      subscriptionRef.current = null
+    }
+
+    const unsubscribe = subscribeToPaymentRequests(conductorId, "conductor", (request) => {
+      setCurrentPaymentRequest((prev) => (prev?.id === request.id ? request : request))
+
+      if (!currentRequestIdRef.current) currentRequestIdRef.current = request.id
+
+      if (request.status === "approved" && currentRequestIdRef.current === request.id && !chargedRef.current) {
+        chargedRef.current = true
+        setIsProcessingPayment(true) // keep spinner on
+        handleProcessPayment(request)
+      } else if (request.status === "declined") {
+        setIsProcessingPayment(false)
+        setShowPaymentConfirmation(false)
+        if (currentRequestIdRef.current === request.id) currentRequestIdRef.current = null
+        chargedRef.current = false
+        setCurrentPaymentRequest(null)
+        Alert.alert("Payment Declined", "The passenger declined the payment request.")
+      } else if (request.status === "expired") {
+        setIsProcessingPayment(false)
+        setShowPaymentConfirmation(false)
+        if (currentRequestIdRef.current === request.id) currentRequestIdRef.current = null
+        chargedRef.current = false
+        setCurrentPaymentRequest(null)
+        Alert.alert("Payment Expired", "The payment request expired. Please try again.")
+      }
+    })
+
+    subscriptionRef.current = unsubscribe
+    return () => unsubscribe()
+  }, [conductorId])
+
+  // Polling as a safety net: detects approved/declined/expired if realtime misses.
+  useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current)
+
+    pollRef.current = setInterval(async () => {
+      const id = currentRequestIdRef.current
+      if (!id) return
+
+      try {
+        const latest = await getPaymentRequest(id)
+        if (!latest) return
+
+        setCurrentPaymentRequest(latest)
+
+        if (latest.status === "approved" && !chargedRef.current) {
+          chargedRef.current = true
+          setIsProcessingPayment(true)
+          handleProcessPayment(latest)
+        } else if (["declined", "expired"].includes(latest.status)) {
+          setIsProcessingPayment(false)
+          setShowPaymentConfirmation(false)
+          if (currentRequestIdRef.current === id) currentRequestIdRef.current = null
+          chargedRef.current = false
+          setCurrentPaymentRequest(null)
+          Alert.alert(
+            latest.status === "declined" ? "Payment Declined" : "Payment Expired",
+            latest.status === "declined"
+              ? "The passenger declined the payment request."
+              : "The payment request expired."
+          )
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }, 1200)
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [])
 
   useEffect(() => {
-    if (!conductorId) return
-    const unsubscribe = subscribeToPaymentRequests(conductorId, "conductor", (request) => {
-      if (currentPaymentRequest && currentPaymentRequest.id === request.id) {
-        setCurrentPaymentRequest(request)
-        if (request.status === "approved") {
-          handleProcessPayment(request)
-        } else if (request.status === "declined") {
-          setIsProcessingPayment(false)
-          setShowPaymentConfirmation(false)
-          Alert.alert("Payment Declined", "The passenger declined the payment request.")
-          setCurrentPaymentRequest(null)
-        }
-      }
-    })
-    subscriptionRef.current = unsubscribe
-    return () => unsubscribe()
-  }, [conductorId, currentPaymentRequest])
-
-  useEffect(() => {
-    (async () => {
+    ; (async () => {
       if (!cameraPermission?.granted) await requestCameraPermission()
     })()
   }, [cameraPermission, requestCameraPermission])
@@ -239,7 +308,7 @@ export default function ConductorScreen() {
     setRefreshing(true)
     if (conductorId) {
       await loadActiveRoute(conductorId)
-      refreshPassengerTypes() // also refresh selectors via key
+      refreshPassengerTypes()
     }
     setRefreshing(false)
   }, [conductorId, refreshPassengerTypes])
@@ -247,7 +316,7 @@ export default function ConductorScreen() {
   useFocusEffect(
     useCallback(() => {
       onRefresh()
-      return () => {}
+      return () => { }
     }, [onRefresh]),
   )
 
@@ -290,9 +359,12 @@ export default function ConductorScreen() {
 
   const handleConfirmPayment = async () => {
     if (!passengerData || totalFareNumber <= 0 || !conductorId) return
-    setIsProcessingPayment(true)
+
     try {
       if (paymentMethod === "QR") {
+        // Start processing immediately and keep it on until completed/declined/expired.
+        setIsProcessingPayment(true)
+
         const request = await createPaymentRequest(
           conductorId,
           conductorName,
@@ -302,19 +374,26 @@ export default function ConductorScreen() {
           from || "Unknown",
           to || "Unknown",
           routeInfo?.busNumber,
-          busType,                 // from selector
-          String(ticketCount),     // ✅ send as string
-          fare                     // per-person fare
+          busType,                      // include Bus Type on request doc
+          String(ticketCount),
+          fare,
+          /** ✅ pass along the selected passengerType so QR flow carries it */
+          passengerType
         )
+
         setCurrentPaymentRequest(request)
+        currentRequestIdRef.current = request.id
+        chargedRef.current = false
+
+        // spinner stays until final state
       } else {
+        // CASH flow — save trip with busType so it appears everywhere
         const tripId = generateTripId()
         const trip = {
           passengerName: passengerData.name,
           fare: totalFareString,
           totalFare: totalFareString,
           farePerPassenger: fare,
-          // ✅ persist both for compatibility, but totalPassengers is the source of truth
           passengerCount: String(ticketCount),
           totalPassengers: String(ticketCount),
           from: from || "Unknown",
@@ -327,25 +406,27 @@ export default function ConductorScreen() {
           passengerType: passengerType,
           kilometer: kilometer,
           busNumber: routeInfo?.busNumber,
+          busType: busType,            // persist Bus Type on cash trips
         }
         const savedTripId = await saveTrip(trip)
         setShowPaymentConfirmation(false)
         setIsProcessingPayment(false)
         router.push({
-          pathname: "/receipt" as any,
+          pathname: "/receipt-conductor" as any,
           params: {
             receiptId: savedTripId || "cash_" + tripId,
             passengerName: passengerData.name,
             fare: totalFareString,
             farePerPassenger: fare,
             passengerCount: String(ticketCount),
-            totalPassengers: String(ticketCount), // ✅ pass through to details
+            totalPassengers: String(ticketCount),
             from: from,
             to: to,
             timestamp: new Date().toLocaleString(),
             passengerType: passengerType,
             paymentMethod: "Cash",
             busNumber: routeInfo?.busNumber,
+            busType: busType,          // pass through to receipt
           },
         })
       }
@@ -356,24 +437,28 @@ export default function ConductorScreen() {
     }
   }
 
+  // Charge exactly once when approved
   const handleProcessPayment = async (request: PaymentRequest) => {
-    if (!request || !passengerData) return
+    if (!request) return
+    if (request.status === "completed") return
+
     try {
       const amountToCharge = parseCurrencyToNumber(request.totalFare || request.fare)
+
       const result = await processPayment(
         request.passengerId,
         amountToCharge,
         `Fare payment from ${request.from} to ${request.to}`
       )
+
       if (result.success) {
         const tripId = generateTripId()
-        const passengersStr = String(request.ticketCount || ticketCount || 1) // ✅ always string
+        const passengersStr = String(request.ticketCount || ticketCount || 1)
         const trip = {
-          passengerName: passengerData.name,
+          passengerName: request.passengerName || passengerData?.name || "Passenger",
           fare: formatCurrency(amountToCharge),
           totalFare: formatCurrency(amountToCharge),
           farePerPassenger: request.farePerPassenger || fare,
-          // ✅ persist both (source of truth = totalPassengers)
           passengerCount: passengersStr,
           totalPassengers: passengersStr,
           from: request.from,
@@ -382,42 +467,61 @@ export default function ConductorScreen() {
           paymentMethod: "QR",
           transactionId: tripId,
           conductorId: conductorId,
-          passengerType: passengerType,
+          /** ✅ persist the correct passenger type from the QR request */
+          passengerType: request.passengerType || passengerType,
           kilometer: kilometer,
           busNumber: request.busNumber || routeInfo?.busNumber,
+          busType: request.busType || busType,  // persist Bus Type on QR trips
         }
         const savedTripId = await saveTrip(trip)
-        await updatePaymentRequestStatus(request.id, "completed", savedTripId || result.transactionId)
+
+        try {
+          await updatePaymentRequestStatus(request.id, "completed", savedTripId || result.transactionId)
+        } catch (e) {
+          console.warn("updatePaymentRequestStatus failed; continuing to receipt:", e)
+        }
+
         setShowPaymentConfirmation(false)
         setIsProcessingPayment(false)
         setCurrentPaymentRequest(null)
+        if (currentRequestIdRef.current === request.id) currentRequestIdRef.current = null
+        chargedRef.current = false
+
         router.push({
-          pathname: "/receipt" as any,
+          pathname: "/receipt-conductor" as any,
           params: {
             receiptId: savedTripId || result.transactionId,
-            passengerName: passengerData.name,
+            passengerName: request.passengerName || "Passenger",
             fare: formatCurrency(amountToCharge),
             farePerPassenger: request.farePerPassenger || fare,
             passengerCount: passengersStr,
-            totalPassengers: passengersStr, // ✅ pass through to details
+            totalPassengers: passengersStr,
             from: request.from,
-            to: to,
+            to: request.to,
             timestamp: new Date().toLocaleString(),
-            passengerType: passengerType,
+            /** ✅ pass the same value to the Receipt screen */
+            passengerType: request.passengerType || passengerType,
             paymentMethod: "QR",
             busNumber: request.busNumber || routeInfo?.busNumber,
+            busType: request.busType || busType, // pass through to receipt
           },
         })
       } else {
         setIsProcessingPayment(false)
         setCurrentPaymentRequest(null)
+        if (currentRequestIdRef.current === request.id) currentRequestIdRef.current = null
+        chargedRef.current = false
         Alert.alert("Payment Failed", result.error || "Failed to process payment")
+        try { await updatePaymentRequestStatus(request.id, "declined") } catch { }
       }
     } catch (error) {
       setIsProcessingPayment(false)
       setCurrentPaymentRequest(null)
+      if (currentRequestIdRef.current === request.id) currentRequestIdRef.current = null
+      chargedRef.current = false
       console.error("Payment error:", error)
       Alert.alert("Payment Error", "An unexpected error occurred while processing payment")
+      try { await updatePaymentRequestStatus(request.id, "declined") } catch { }
     }
   }
 
@@ -426,7 +530,10 @@ export default function ConductorScreen() {
     setPassengerData(null)
     setScanned(false)
     setCurrentPaymentRequest(null)
+    currentRequestIdRef.current = null
+    chargedRef.current = false
     setCapturedImage(null)
+    setIsProcessingPayment(false)
   }
 
   const handlePaymentMethodChange = (method: "QR" | "Cash") => {
@@ -536,8 +643,6 @@ export default function ConductorScreen() {
             </View>
           )}
 
-          {/* Selectors */}
-          {/* ✅ Give each sibling a unique namespaced key to avoid duplicate-key reconciliation issues */}
           <PassengerTypeSelector key={`pts-${refreshKey}`} value={passengerType} onChange={setPassengerType} />
           <BusTypeSelector key={`bts-${refreshKey}`} value={busType} onChange={setBusType} />
 
@@ -555,7 +660,7 @@ export default function ConductorScreen() {
             )}
 
             {distanceError && (
-              <View style={styles.errorContainer}>
+              <View className="p-3 mb-3 rounded-md bg-red-50">
                 <Text style={styles.errorText}>{distanceError}</Text>
               </View>
             )}
@@ -675,12 +780,6 @@ const styles = StyleSheet.create({
     color: "#1976d2",
     fontSize: 14,
     fontWeight: "500",
-  },
-  errorContainer: {
-    backgroundColor: "#ffebee",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
   },
   errorText: {
     color: "#c62828",

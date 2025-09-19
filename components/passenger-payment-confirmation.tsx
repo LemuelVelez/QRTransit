@@ -1,3 +1,5 @@
+// components/passenger-payment-confirmation.tsx
+import { useRef, useState } from "react"
 import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 
@@ -30,11 +32,37 @@ export default function PassengerPaymentConfirmation({
   totalFare,
 }: PassengerPaymentConfirmationProps) {
   const totalToShow = totalFare || fare
+
+  // Local “press” guard to avoid multiple taps & show instant spinner if parent is a bit late
+  const pressedRef = useRef(false)
+  const [localProcessing, setLocalProcessing] = useState(false)
+
+  const confirmOnce = () => {
+    if (pressedRef.current || isProcessing) return
+    pressedRef.current = true
+    setLocalProcessing(true)          // show spinner immediately
+    try {
+      onConfirm()
+    } finally {
+      // let parent own the final state; we keep spinner until modal unmounts/visible=false
+      setTimeout(() => { pressedRef.current = false }, 1200)
+    }
+  }
+
+  const canInteract = !(isProcessing || localProcessing)
+
   return (
-    <Modal visible={visible} transparent={true} animationType="fade">
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        if (canInteract) onCancel()
+      }}
+    >
       <View className="items-center justify-center flex-1 bg-black/50">
         <View className="bg-white w-[90%] max-w-md rounded-xl p-6">
-          {isProcessing ? (
+          {isProcessing || localProcessing ? (
             <View className="items-center py-8">
               <ActivityIndicator size="large" color="#059669" />
               <Text className="mt-4 text-lg font-medium text-gray-800">Processing payment...</Text>
@@ -43,7 +71,7 @@ export default function PassengerPaymentConfirmation({
             <>
               <View className="flex-row items-center justify-between mb-4">
                 <Text className="text-xl font-bold text-gray-800">Payment Request</Text>
-                <TouchableOpacity onPress={onCancel} disabled={isProcessing}>
+                <TouchableOpacity onPress={onCancel} disabled={!canInteract} accessibilityRole="button">
                   <Ionicons name="close" size={24} color="#059669" />
                 </TouchableOpacity>
               </View>
@@ -62,7 +90,7 @@ export default function PassengerPaymentConfirmation({
                   <Text className="font-medium text-gray-800">{to}</Text>
                 </View>
 
-                {ticketCount ? (
+                {typeof ticketCount === "number" && ticketCount > 0 ? (
                   <>
                     <View className="flex-row justify-between mb-2">
                       <Text className="text-gray-600">Tickets:</Text>
@@ -88,12 +116,22 @@ export default function PassengerPaymentConfirmation({
               </Text>
 
               <View className="flex-row justify-between">
-                <TouchableOpacity onPress={onCancel} className="items-center flex-1 py-3 mr-2 bg-gray-200 rounded-lg">
+                <TouchableOpacity
+                  onPress={canInteract ? onCancel : undefined}
+                  disabled={!canInteract}
+                  className={`items-center flex-1 py-3 mr-2 rounded-lg ${canInteract ? "bg-gray-200" : "bg-gray-200/70"}`}
+                  accessibilityRole="button"
+                >
                   <Text className="font-medium text-gray-800">Decline</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
-                  onPress={onConfirm}
-                  className="items-center flex-1 py-3 ml-2 rounded-lg bg-emerald-500"
+                  onPress={confirmOnce}
+                  disabled={!canInteract}
+                  className={`items-center flex-1 py-3 ml-2 rounded-lg ${canInteract ? "bg-emerald-500" : "bg-emerald-500/60"}`}
+                  accessibilityRole="button"
+                  testID="authorize-button"
+                  activeOpacity={0.85}
                 >
                   <Text className="font-medium text-white">Authorize</Text>
                 </TouchableOpacity>
