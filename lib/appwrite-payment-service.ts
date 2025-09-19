@@ -22,7 +22,7 @@ export interface PaymentRequest {
   transactionId?: string;
   busNumber?: string;
   busType?: string;
-  ticketCount?: number;
+  ticketCount?: string; // ✅ string
   farePerPassenger?: string;
   totalFare?: string; // mirrors `fare`
 }
@@ -37,7 +37,7 @@ export async function createPaymentRequest(
   to: string,
   busNumber?: string,
   busType?: string,
-  ticketCount?: number,
+  ticketCount?: string, // ✅ accept as string
   farePerPassenger?: string
 ): Promise<PaymentRequest> {
   try {
@@ -57,7 +57,7 @@ export async function createPaymentRequest(
       fare: totalFare, // store total in legacy field
       totalFare: totalFare,
       farePerPassenger: farePerPassenger || "",
-      ticketCount: ticketCount ?? 1,
+      ticketCount: ticketCount ?? "1", // ✅ always string
       from,
       to,
       timestamp,
@@ -87,7 +87,7 @@ export async function createPaymentRequest(
       transactionId: response.transactionId,
       busNumber: response.busNumber,
       busType: response.busType,
-      ticketCount: Number(response.ticketCount || 1),
+      ticketCount: String(response.ticketCount ?? "1"), // ✅ keep string
       farePerPassenger: response.farePerPassenger || "",
       totalFare: response.totalFare || response.fare,
     };
@@ -159,7 +159,7 @@ export async function getPaymentRequests(
       transactionId: doc.transactionId,
       busNumber: doc.busNumber,
       busType: doc.busType,
-      ticketCount: Number(doc.ticketCount || 1),
+      ticketCount: String(doc.ticketCount ?? "1"), // ✅ keep string
       farePerPassenger: doc.farePerPassenger || "",
       totalFare: doc.totalFare || doc.fare,
     }));
@@ -203,7 +203,7 @@ export async function getPaymentRequest(
       transactionId: doc.transactionId,
       busNumber: doc.busNumber,
       busType: doc.busType,
-      ticketCount: Number(doc.ticketCount || 1),
+      ticketCount: String(doc.ticketCount ?? "1"), // ✅ keep string
       farePerPassenger: doc.farePerPassenger || "",
       totalFare: doc.totalFare || doc.fare,
     };
@@ -256,7 +256,7 @@ export function subscribeToPaymentRequests(
         transactionId: document.transactionId,
         busNumber: document.busNumber,
         busType: document.busType,
-        ticketCount: Number(document.ticketCount || 1),
+        ticketCount: String(document.ticketCount ?? "1"), // ✅ keep string
         farePerPassenger: document.farePerPassenger || "",
         totalFare: document.totalFare || document.fare,
       };

@@ -42,7 +42,7 @@ export default function ConductorScreen() {
   const [to, setTo] = useState("")
   const [kilometer, setKilometer] = useState("")
   const [fare, setFare] = useState("") // per-person fare
-  const [ticketCount, setTicketCount] = useState<number>(1)
+  const [ticketCount, setTicketCount] = useState<number>(1) // UI uses number for stepper
 
   const [showQrScanner, setShowQrScanner] = useState(false)
   const [showCameraCapture, setShowCameraCapture] = useState(false)
@@ -303,7 +303,7 @@ export default function ConductorScreen() {
           to || "Unknown",
           routeInfo?.busNumber,
           busType,                 // from selector
-          ticketCount,
+          String(ticketCount),     // ✅ send as string
           fare                     // per-person fare
         )
         setCurrentPaymentRequest(request)
@@ -367,7 +367,7 @@ export default function ConductorScreen() {
       )
       if (result.success) {
         const tripId = generateTripId()
-        const passengersStr = String(request.ticketCount || ticketCount || 1) // ✅ one place
+        const passengersStr = String(request.ticketCount || ticketCount || 1) // ✅ always string
         const trip = {
           passengerName: passengerData.name,
           fare: formatCurrency(amountToCharge),
