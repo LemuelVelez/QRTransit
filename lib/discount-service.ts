@@ -241,7 +241,7 @@ export async function deleteDiscountConfiguration(id: string): Promise<boolean> 
 }
 
 // ---------------- Queries / Helpers ----------------
-export async function getDiscountPercentage(passengerType: string): Promise<number> {
+export async function getDiscountPercentage(passengerType: string, busType: string): Promise<number> {
   const all = await getDiscountConfigurations();
   const passengerOnly = all.filter((d) => d.active && d.passengerType !== BASE);
 

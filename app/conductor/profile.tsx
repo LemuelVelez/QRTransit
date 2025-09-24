@@ -210,6 +210,7 @@ export default function ConductorProfileScreen() {
             <Text className="text-gray-700">Set Up New Route</Text>
             <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
           </TouchableOpacity>
+
           <TouchableOpacity
             className="flex-row items-center py-3 border-b border-gray-100"
             onPress={() => router.push("/conductor/manage-types")}
@@ -218,6 +219,16 @@ export default function ConductorProfileScreen() {
             <Text className="text-gray-700">Manage Discounts</Text>
             <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
           </TouchableOpacity>
+
+          <TouchableOpacity
+            className="flex-row items-center py-3 border-b border-gray-100"
+            onPress={() => router.push("/conductor/manage-fares" as any)}
+          >
+            <Ionicons name="calculator-outline" size={20} color="#059669" className="mr-4" />
+            <Text className="text-gray-700">Manage Fare Rates</Text>
+            <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
+          </TouchableOpacity>
+
           <TouchableOpacity
             className="flex-row items-center py-3 border-b border-gray-100"
             onPress={() => router.push("/conductor/manage-remittance" as any)}
@@ -226,6 +237,7 @@ export default function ConductorProfileScreen() {
             <Text className="text-gray-700">Manage Cash Remittance</Text>
             <Ionicons name="chevron-forward" size={20} color="#059669" className="ml-auto" />
           </TouchableOpacity>
+
           <TouchableOpacity
             className="flex-row items-center py-3"
             onPress={() => Alert.alert("Help", "Contact support at support@quickride.com")}

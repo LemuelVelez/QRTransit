@@ -35,6 +35,7 @@ import CameraCapture from "@/components/camera-capture"
 import { saveTrip, generateTripId } from "@/lib/trips-service"
 import { calculateDistance } from "@/lib/google-maps-service"
 import { getDiscountPercentage, getBusTypeFareMultiplier } from "@/lib/discount-service"
+import { calculateFareWithModifiers } from "@/lib/fare-service"
 
 export default function ConductorScreen() {
   const [passengerType, setPassengerType] = useState("Regular")
@@ -85,6 +86,7 @@ export default function ConductorScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const router = useRouter()
 
+  // Enhanced fare calculation using the fare service
   useEffect(() => {
     const calculateDistanceAndFare = async () => {
       if (from.trim() && to.trim() && from !== to) {
@@ -96,19 +98,14 @@ export default function ConductorScreen() {
             const distanceKm = result.distance.toFixed(2)
             setKilometer(distanceKm)
 
-            const baseFlagDown = 15
-            const ratePerKm = 2.5
-            const raw = baseFlagDown + result.distance * ratePerKm
+            // Use the new fare service for calculation
+            const fareCalculation = await calculateFareWithModifiers(
+              result.distance,
+              passengerType,
+              busType
+            )
 
-            const [discPct, busMult] = await Promise.all([
-              getDiscountPercentage(passengerType),
-              getBusTypeFareMultiplier(busType),
-            ])
-
-            let calculated = raw * (busMult || 1)
-            calculated = calculated * (1 - (discPct || 0) / 100)
-
-            setFare(`₱${calculated.toFixed(2)}`)
+            setFare(`₱${fareCalculation.finalFare.toFixed(2)}`)
             setDistanceError(null)
           } else {
             setDistanceError("Could not calculate distance. Please check your locations.")
@@ -550,6 +547,11 @@ export default function ConductorScreen() {
     router.push({ pathname: "/conductor/manage-types" as any })
   }
 
+  const navigateToManageFares = () => {
+    setNeedsRefresh(true)
+    router.push({ pathname: "/conductor/manage-fares" as any })
+  }
+
   useEffect(() => {
     if (needsRefresh) {
       refreshPassengerTypes()
@@ -621,6 +623,9 @@ export default function ConductorScreen() {
                 <TouchableOpacity className="mr-2" onPress={navigateToManageDiscounts}>
                   <Ionicons name="cash-outline" size={24} color="white" />
                 </TouchableOpacity>
+                <TouchableOpacity className="mr-2" onPress={navigateToManageFares}>
+                  <Ionicons name="calculator-outline" size={24} color="white" />
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.push({ pathname: "/conductor/profile" as any })}>
                   <Ionicons name="person-outline" size={24} color="white" />
                 </TouchableOpacity>
@@ -655,7 +660,7 @@ export default function ConductorScreen() {
             {isCalculatingDistance && (
               <View style={styles.calculatingContainer}>
                 <ActivityIndicator size="small" color="#007AFF" />
-                <Text style={styles.calculatingText}>Calculating distance via GPS...</Text>
+                <Text style={styles.calculatingText}>Calculating distance and fare via GPS...</Text>
               </View>
             )}
 
@@ -715,7 +720,7 @@ export default function ConductorScreen() {
               </View>
             </View>
 
-            <Text style={styles.gpsNote}>💡 Groups with same destination can be paid at once—set the ticket count above.</Text>
+            <Text style={styles.gpsNote}>💡 Enhanced with customizable fare rates. Manage fares using the calculator icon above.</Text>
           </View>
         </View>
       </ScrollView>
