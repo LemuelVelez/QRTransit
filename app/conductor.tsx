@@ -34,7 +34,6 @@ import { Ionicons } from "@expo/vector-icons"
 import CameraCapture from "@/components/camera-capture"
 import { saveTrip, generateTripId } from "@/lib/trips-service"
 import { calculateDistance } from "@/lib/google-maps-service"
-import { getDiscountPercentage, getBusTypeFareMultiplier } from "@/lib/discount-service"
 import { calculateFareWithModifiers } from "@/lib/fare-service"
 
 export default function ConductorScreen() {
@@ -296,7 +295,7 @@ export default function ConductorScreen() {
   }, [])
 
   useEffect(() => {
-    ; (async () => {
+    ;(async () => {
       if (!cameraPermission?.granted) await requestCameraPermission()
     })()
   }, [cameraPermission, requestCameraPermission])
@@ -313,7 +312,7 @@ export default function ConductorScreen() {
   useFocusEffect(
     useCallback(() => {
       onRefresh()
-      return () => { }
+      return () => {}
     }, [onRefresh]),
   )
 
@@ -592,44 +591,50 @@ export default function ConductorScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
+      {/* --- Header (separated from route info) --- */}
+      <View className="px-4 pt-12 pb-3 bg-emerald-700">
+        <View className="flex-row items-center justify-end">
+          <TouchableOpacity
+            className="mr-3"
+            onPress={() => router.push({ pathname: "/conductor/history" as any })}
+          >
+            <Ionicons name="document-text-outline" size={24} color="white" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            className="mr-3"
+            onPress={() => router.push({ pathname: "/conductor/manage-routes" as any })}
+          >
+            <Ionicons name="map-outline" size={24} color="white" />
+          </TouchableOpacity>
+
+          <TouchableOpacity className="mr-3" onPress={navigateToManageDiscounts}>
+            <Ionicons name="cash-outline" size={24} color="white" />
+          </TouchableOpacity>
+
+          <TouchableOpacity className="mr-3" onPress={navigateToManageFares}>
+            <Ionicons name="calculator-outline" size={24} color="white" />
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => router.push({ pathname: "/conductor/profile" as any })}>
+            <Ionicons name="person-outline" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <ScrollView
         className="flex-1 p-4"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#059669"]} tintColor="#ffffff" />
         }
       >
-        <View className="mt-16">
+        <View className="mt-2">
           {routeInfo && (
-            <View className="flex-row items-center justify-between p-3 mb-4 rounded-lg bg-emerald-700">
-              <View className="flex-1">
-                <Text className="font-bold text-white">
-                  {routeInfo.from} → {routeInfo.to}
-                </Text>
-                <Text className="text-white opacity-80">Bus #{routeInfo.busNumber}</Text>
-              </View>
-              <View className="flex-row">
-                <TouchableOpacity
-                  className="mr-2"
-                  onPress={() => router.push({ pathname: "/conductor/history" as any })}
-                >
-                  <Ionicons name="document-text-outline" size={24} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  className="mr-2"
-                  onPress={() => router.push({ pathname: "/conductor/manage-routes" as any })}
-                >
-                  <Ionicons name="map-outline" size={24} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity className="mr-2" onPress={navigateToManageDiscounts}>
-                  <Ionicons name="cash-outline" size={24} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity className="mr-2" onPress={navigateToManageFares}>
-                  <Ionicons name="calculator-outline" size={24} color="white" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push({ pathname: "/conductor/profile" as any })}>
-                  <Ionicons name="person-outline" size={24} color="white" />
-                </TouchableOpacity>
-              </View>
+            <View className="p-3 mb-4 rounded-lg bg-emerald-700">
+              <Text className="font-bold text-white">
+                {routeInfo.from} → {routeInfo.to}
+              </Text>
+              <Text className="text-white opacity-80">Bus #{routeInfo.busNumber}</Text>
             </View>
           )}
 
@@ -733,7 +738,7 @@ export default function ConductorScreen() {
           disabled={!routeInfo}
         >
           <Ionicons name="qr-code" size={24} color="white" />
-          <Text className="font-bold text-white">QR Payment</Text>
+          <Text className="ml-2 font-bold text-white">QR Payment</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -742,7 +747,7 @@ export default function ConductorScreen() {
           disabled={!routeInfo}
         >
           <Ionicons name="cash" size={24} color="white" />
-          <Text className="font-bold text-white">Cash Payment</Text>
+          <Text className="ml-2 font-bold text-white">Cash Payment</Text>
         </TouchableOpacity>
       </View>
 
