@@ -18,9 +18,7 @@ export const config = {
   avatarBucketId: process.env.EXPO_PUBLIC_APPWRITE_AVATAR_BUCKET_ID,
   discountsCollectionId:
     process.env.EXPO_PUBLIC_APPWRITE_DISCOUNTS_COLLECTION_ID,
-  // ✅ Bus Types collection
   busTypeCollectionId: process.env.EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID,
-  // ✅ New: Fare collection
   fareCollectionId: process.env.EXPO_PUBLIC_APPWRITE_FARE_COLLECTION_ID,
 };
 
@@ -32,6 +30,40 @@ export const account = new Account(client);
 export const databases = new Databases(client);
 export const storage = new Storage(client);
 
+// ---- Safe error normalization helper ----
+const toErrorInfo = (
+  err: unknown
+): { message: string; code?: number | string; raw: unknown } => {
+  if (err instanceof Error) {
+    const anyErr = err as any;
+    return {
+      message: err.message || "Unknown error",
+      code: anyErr?.code,
+      raw: err,
+    };
+  }
+  if (typeof err === "string") return { message: err, raw: err };
+  if (err && typeof err === "object") {
+    const anyErr = err as Record<string, unknown>;
+    const msg =
+      typeof anyErr["message"] === "string"
+        ? (anyErr["message"] as string)
+        : JSON.stringify(anyErr);
+    const codeVal =
+      typeof anyErr["code"] === "string" || typeof anyErr["code"] === "number"
+        ? (anyErr["code"] as number | string)
+        : undefined;
+    return { message: msg, code: codeVal, raw: err };
+  }
+  return { message: "Unknown error", raw: err };
+};
+
+/**
+ * Registration flow per your requirement:
+ * 1) Strict DB checks: BLOCK if username OR phonenumber exist in DB (regardless of userId).
+ * 2) Then handle Auth by email (create account, or fail if email already in Auth).
+ * 3) DB write: claim orphan by email (if exists and has no userId), else create new doc.
+ */
 export async function registerUser(
   email: string,
   password: string,
@@ -41,81 +73,148 @@ export async function registerUser(
   phonenumber: string
 ) {
   try {
-    // Create a new account
-    const newAccount = await account.create(
-      ID.unique(),
-      email,
-      password,
-      `${firstname} ${lastname}`
+    if (!config.databaseId || !config.usersCollectionId) {
+      throw new Error("Configuration error: Missing database/collection IDs");
+    }
+
+    const normEmail = email.trim().toLowerCase();
+    const normUsername = username.trim();
+    const normPhone = phonenumber.trim();
+
+    // (A) DB STRICT CHECKS first (username & phone) - block on ANY hit
+    const [userDocs, phoneDocs] = await Promise.all([
+      databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
+        Query.equal("username", normUsername),
+      ]),
+      databases.listDocuments(config.databaseId!, config.usersCollectionId!, [
+        Query.equal("phonenumber", normPhone),
+      ]),
+    ]);
+
+    if (userDocs.documents.length > 0) {
+      throw new Error("username already exists");
+    }
+    if (phoneDocs.documents.length > 0) {
+      throw new Error("phone number already exists");
+    }
+
+    // (B) AUTH by email after DB checks
+    let newAccount;
+    try {
+      newAccount = await account.create(
+        ID.unique(),
+        normEmail,
+        password,
+        `${firstname} ${lastname}`.trim()
+      );
+    } catch (err) {
+      const { message, code } = toErrorInfo(err);
+      const msg = (message || "").toLowerCase();
+      if (
+        msg.includes("already exists") ||
+        msg.includes("user already exists") ||
+        code === 409
+      ) {
+        throw new Error("email already exists in auth");
+      }
+      throw new Error(message || "Failed to create Auth account");
+    }
+
+    if (!newAccount?.$id) {
+      throw new Error("Failed to create Auth account");
+    }
+
+    // Create session for the new Auth user
+    await account.createEmailPasswordSession(normEmail, password);
+
+    // (C) DB write — claim orphan by email if present (no userId), else create fresh doc
+    const emailDocs = await databases.listDocuments(
+      config.databaseId!,
+      config.usersCollectionId!,
+      [Query.equal("email", normEmail)]
     );
 
-    if (newAccount.$id) {
-      // Create a session for the new user
-      await account.createEmailPasswordSession(email, password);
+    const baseProfile = {
+      userId: newAccount.$id,
+      email: normEmail,
+      firstname: firstname.trim(),
+      lastname: lastname.trim(),
+      username: normUsername,
+      phonenumber: normPhone,
+    };
 
-      // Store additional user data in the database
-      // Include an empty pin field to satisfy the schema requirement
+    const orphanByEmail = emailDocs.documents.find((d: any) => !d.userId);
+
+    if (orphanByEmail) {
+      // Claim orphan (preserve pin if present)
+      try {
+        await databases.updateDocument(
+          config.databaseId!,
+          config.usersCollectionId!,
+          orphanByEmail.$id,
+          {
+            ...baseProfile,
+            pin: typeof orphanByEmail.pin === "string" ? orphanByEmail.pin : "",
+          }
+        );
+      } catch (_uErr) {
+        // Fallback to creating a new profile if update fails
+        await databases.createDocument(
+          config.databaseId!,
+          config.usersCollectionId!,
+          ID.unique(),
+          { ...baseProfile, pin: "" }
+        );
+      }
+    } else {
+      // Create a fresh user document
       await databases.createDocument(
         config.databaseId!,
         config.usersCollectionId!,
         ID.unique(),
-        {
-          userId: newAccount.$id,
-          email: email,
-          firstname: firstname,
-          lastname: lastname,
-          username: username,
-          phonenumber: phonenumber,
-          pin: "", // Add an empty pin that will be updated later
-        }
+        { ...baseProfile, pin: "" }
       );
-
-      const userAvatar = avatar.getInitials(`${firstname} ${lastname}`);
-
-      return {
-        ...newAccount,
-        firstname,
-        lastname,
-        username,
-        phonenumber,
-        avatar: userAvatar.toString(),
-      };
     }
 
-    return null;
-  } catch (error) {
-    console.error("Registration error:", error);
-    throw error;
+    const userAvatar = avatar.getInitials(`${firstname} ${lastname}`);
+
+    return {
+      ...newAccount,
+      firstname: firstname.trim(),
+      lastname: lastname.trim(),
+      username: normUsername,
+      phonenumber: normPhone,
+      avatar: userAvatar.toString(),
+    };
+  } catch (err) {
+    const { message } = toErrorInfo(err);
+    console.error("Registration error:", err);
+    throw new Error(message);
   }
 }
 
 export async function loginUser(username: string, password: string) {
   try {
-    // Find the user with the provided username
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
       [Query.equal("username", username)]
     );
 
-    // Check if user exists
     if (users.documents.length === 0) {
       throw new Error("User not found");
     }
 
     const user = users.documents[0];
 
-    // Create a session with the user's email and password
     const session = await account.createEmailPasswordSession(
       user.email,
       password
     );
 
     if (session) {
-      // Get user account details
       const accountDetails = await account.get();
 
-      // Return user data
       return {
         ...accountDetails,
         firstname: user.firstname,
@@ -129,48 +228,40 @@ export async function loginUser(username: string, password: string) {
     }
 
     return null;
-  } catch (error) {
-    console.error("Login error:", error);
-    throw error;
+  } catch (err) {
+    const { message } = toErrorInfo(err);
+    console.error("Login error:", err);
+    throw new Error(message);
   }
 }
 
 export async function logoutUser() {
   try {
-    // Get the current session
     const currentSession = await account.getSession("current");
-
-    // Delete the current session
     await account.deleteSession(currentSession.$id);
-
     return { success: true };
-  } catch (error) {
-    console.error("Logout error:", error);
-    throw error;
+  } catch (err) {
+    const { message } = toErrorInfo(err);
+    console.error("Logout error:", err);
+    throw new Error(message);
   }
 }
 
 /**
  * Register a PIN for the current user
- * @param pin The PIN to register
- * @returns The updated user data or null if operation fails
  */
 export async function registerPin(pin: string) {
   try {
-    // Get current user
     const currentUser = await getCurrentUser();
-
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
 
-    // Hash the PIN using SHA-256
     const hashedPin = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
       pin
     );
 
-    // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
@@ -181,42 +272,32 @@ export async function registerPin(pin: string) {
       throw new Error("User document not found");
     }
 
-    // Update the user document with the PIN
     const userDoc = users.documents[0];
     await databases.updateDocument(
       config.databaseId!,
       config.usersCollectionId!,
       userDoc.$id,
-      {
-        pin: hashedPin,
-      }
+      { pin: hashedPin }
     );
 
-    return {
-      ...currentUser,
-      pin: hashedPin,
-    };
-  } catch (error) {
-    console.error("PIN registration error:", error);
-    throw error;
+    return { ...currentUser, pin: hashedPin };
+  } catch (err) {
+    const { message } = toErrorInfo(err);
+    console.error("PIN registration error:", err);
+    throw new Error(message);
   }
 }
 
 /**
  * Verify a PIN against the stored hashed PIN
- * @param pin The PIN to verify
- * @returns Boolean indicating if the PIN is correct
  */
 export async function verifyPin(pin: string) {
   try {
-    // Get current user
     const currentUser = await getCurrentUser();
-
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
 
-    // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
@@ -228,40 +309,30 @@ export async function verifyPin(pin: string) {
     }
 
     const userDocument = users.documents[0];
+    if (!userDocument.pin) return false;
 
-    // If no PIN is set, return false
-    if (!userDocument.pin) {
-      return false;
-    }
-
-    // Hash the provided PIN
     const hashedPin = await Crypto.digestStringAsync(
       Crypto.CryptoDigestAlgorithm.SHA256,
       pin
     );
 
-    // Compare the hashed PIN with the stored one
     return hashedPin === userDocument.pin;
-  } catch (error) {
-    console.error("PIN verification error:", error);
+  } catch (err) {
+    console.error("PIN verification error:", err);
     return false;
   }
 }
 
 /**
  * Get the hashed PIN for the current user
- * @returns The hashed PIN or null if not found
  */
 export async function getPin() {
   try {
-    // Get current user
     const currentUser = await getCurrentUser();
-
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
 
-    // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
@@ -273,11 +344,9 @@ export async function getPin() {
     }
 
     const userDocument = users.documents[0];
-
-    // Return the hashed PIN or null if not set
     return userDocument.pin || null;
-  } catch (error) {
-    console.error("Get PIN error:", error);
+  } catch (err) {
+    console.error("Get PIN error:", err);
     return null;
   }
 }
@@ -286,7 +355,6 @@ export async function getCurrentUser() {
   try {
     const result = await account.get();
     if (result.$id) {
-      // Get additional user data from the database
       const users = await databases.listDocuments(
         config.databaseId!,
         config.usersCollectionId!,
@@ -295,7 +363,6 @@ export async function getCurrentUser() {
 
       const userData = users.documents.length > 0 ? users.documents[0] : null;
 
-      // Use stored avatar URL if available, otherwise use generated avatar
       const userAvatar = userData?.avatar
         ? userData.avatar
         : avatar
@@ -316,17 +383,13 @@ export async function getCurrentUser() {
     }
 
     return null;
-  } catch (error) {
-    console.log(error);
+  } catch (_err) {
     return null;
   }
 }
 
 /**
  * Update user profile information
- * @param userData Object containing user data to update (firstname, lastname, username, email, phonenumber)
- * @param avatarFile Optional avatar file to upload
- * @returns The updated user data or null if operation fails
  */
 export async function updateUserProfile(
   userData: {
@@ -344,14 +407,11 @@ export async function updateUserProfile(
   }
 ) {
   try {
-    // Get current user
     const currentUser = await getCurrentUser();
-
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
 
-    // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
@@ -362,75 +422,51 @@ export async function updateUserProfile(
       throw new Error("User document not found");
     }
 
-    // Prepare update data
     const updateData: Record<string, any> = {};
-
     if (userData.firstname) updateData.firstname = userData.firstname;
     if (userData.lastname) updateData.lastname = userData.lastname;
     if (userData.username) updateData.username = userData.username;
     if (userData.email) updateData.email = userData.email;
     if (userData.phonenumber) updateData.phonenumber = userData.phonenumber;
 
-    // Handle avatar upload if provided
     let avatarUrl = currentUser.avatar;
 
     if (avatarFile) {
       try {
-        // Validate bucket ID exists before attempting upload
         const bucketId = config.avatarBucketId;
-
         if (!bucketId) {
-          console.error("Avatar upload error: Missing bucket ID configuration");
           throw new Error("Missing bucket ID configuration");
         }
 
-        console.log("Using bucket ID:", bucketId); // Debug log
-
-        // Delete the existing avatar file if it exists
         if (currentUser.avatar) {
           try {
-            // Extract the file ID from the avatar URL
-            // The URL format is typically: https://cloud.appwrite.io/v1/storage/buckets/{bucketId}/files/{fileId}/view
-            const fileIdMatch = currentUser.avatar.match(
+            const fileIdMatch = (currentUser.avatar as string).match(
               /files\/([^/]+)\/view/
             );
-
             if (fileIdMatch && fileIdMatch[1]) {
               const oldFileId = fileIdMatch[1];
-
-              // Delete the old file
               await storage.deleteFile(bucketId, oldFileId);
-              console.log("Deleted old avatar file:", oldFileId);
             }
           } catch (deleteError) {
-            // Log but continue if deletion fails
             console.error("Failed to delete old avatar:", deleteError);
           }
         }
 
-        // Generate a unique file ID
         const fileId = ID.unique();
-
-        // Upload the file to the avatars bucket
         const uploadResult = await storage.createFile(
           bucketId,
           fileId,
           avatarFile
         );
-
-        // Get the file URL
         const fileUrl = storage.getFileView(bucketId, uploadResult.$id);
 
-        // Update the avatar URL in the database
         updateData.avatar = fileUrl.href;
         avatarUrl = fileUrl.href;
       } catch (uploadError) {
         console.error("Avatar upload error:", uploadError);
-        // Continue with other updates even if avatar upload fails
       }
     }
 
-    // Update the user document
     const userDoc = users.documents[0];
     await databases.updateDocument(
       config.databaseId!,
@@ -439,47 +475,37 @@ export async function updateUserProfile(
       updateData
     );
 
-    // If name components are being updated, update the name in the account
     if (userData.firstname && userData.lastname) {
       await account.updateName(`${userData.firstname} ${userData.lastname}`);
     }
 
-    return {
-      ...currentUser,
-      ...userData,
-      avatar: avatarUrl,
-    };
-  } catch (error) {
-    console.error("Profile update error:", error);
-    throw error;
+    return { ...currentUser, ...userData, avatar: avatarUrl };
+  } catch (err) {
+    const { message } = toErrorInfo(err);
+    console.error("Profile update error:", err);
+    throw new Error(message);
   }
 }
 
 export async function getCurrentSession() {
   try {
-    // Get the current active session
     const session = await account.getSession("current");
     return session;
-  } catch (error) {
-    console.error("Session error:", error);
+  } catch (_err) {
     return null;
   }
 }
 
 /**
  * Get the user's role and redirect based on role
- * @returns The user's role or null if not found
  */
 export async function getUserRoleAndRedirect() {
   try {
-    // Get current user
     const currentUser = await getCurrentUser();
-
     if (!currentUser || !currentUser.$id) {
       throw new Error("No authenticated user found");
     }
 
-    // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
@@ -491,54 +517,30 @@ export async function getUserRoleAndRedirect() {
     }
 
     const userDocument = users.documents[0];
-
-    // Get the role from the user document
-    // If role doesn't exist, default to "passenger"
     const role = userDocument.role || "passenger";
 
-    // Redirect based on role
     if (role === "conductor") {
-      return {
-        role: "conductor",
-        redirectTo: "/conductor",
-      };
+      return { role: "conductor", redirectTo: "/conductor" };
     } else if (role === "inspector") {
-      return {
-        role: "inspector",
-        redirectTo: "/inspector",
-      };
+      return { role: "inspector", redirectTo: "/inspector" };
     } else {
-      // Default to passenger role
-      return {
-        role: "passenger",
-        redirectTo: "/",
-      };
+      return { role: "passenger", redirectTo: "/" };
     }
-  } catch (error) {
-    console.error("Role verification error:", error);
-    // Default to passenger on error
-    return {
-      role: "passenger",
-      redirectTo: "/",
-    };
+  } catch (_err) {
+    return { role: "passenger", redirectTo: "/" };
   }
 }
 
 /**
  * Check if the user has permission to access a specific route
- * @param requiredRole The role or array of roles required to access the route
- * @returns Boolean indicating if the user has permission
  */
 export async function checkRoutePermission(requiredRole: string | string[]) {
   try {
-    // Get current user
     const currentUser = await getCurrentUser();
-
     if (!currentUser || !currentUser.$id) {
-      return false; // No authenticated user
+      return false;
     }
 
-    // Find the user document
     const users = await databases.listDocuments(
       config.databaseId!,
       config.usersCollectionId!,
@@ -546,24 +548,17 @@ export async function checkRoutePermission(requiredRole: string | string[]) {
     );
 
     if (users.documents.length === 0) {
-      return false; // User document not found
+      return false;
     }
 
     const userDocument = users.documents[0];
-
-    // Get the role from the user document
-    // If role doesn't exist, default to "passenger"
     const userRole = userDocument.role || "passenger";
 
-    // If requiredRole is a string, check for exact match
     if (typeof requiredRole === "string") {
       return userRole === requiredRole;
     }
-
-    // If requiredRole is an array, check if userRole is in the array
     return requiredRole.includes(userRole);
-  } catch (error) {
-    console.error("Permission check error:", error);
+  } catch (_err) {
     return false;
   }
 }

@@ -49,42 +49,25 @@ const Register = () => {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    // Validate first name
-    if (!firstName.trim()) {
-      newErrors.firstName = "First name is required";
-    }
+    if (!firstName.trim()) newErrors.firstName = "First name is required";
+    if (!lastName.trim()) newErrors.lastName = "Last name is required";
 
-    // Validate last name
-    if (!lastName.trim()) {
-      newErrors.lastName = "Last name is required";
-    }
-
-    // Validate email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email.trim()) {
       newErrors.email = "Email is required";
-    } else if (!emailRegex.test(email)) {
+    } else if (!emailRegex.test(email.trim())) {
       newErrors.email = "Please enter a valid email";
     }
 
-    // Validate phone number
-    if (!phoneNumber.trim()) {
-      newErrors.phoneNumber = "Phone number is required";
-    }
+    if (!phoneNumber.trim()) newErrors.phoneNumber = "Phone number is required";
+    if (!username.trim()) newErrors.username = "Username is required";
 
-    // Validate username
-    if (!username.trim()) {
-      newErrors.username = "Username is required";
-    }
-
-    // Validate password
     if (!password) {
       newErrors.password = "Password is required";
     } else if (password.length < 8) {
       newErrors.password = "Password must be at least 8 characters";
     }
 
-    // Validate re-type password
     if (password !== reTypePassword) {
       newErrors.reTypePassword = "Passwords do not match";
     }
@@ -93,41 +76,73 @@ const Register = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleRegister = async () => {
-    if (!validateForm()) {
+  // --- Safe error normalization (no direct `.message`/`.code` access on unknown) ---
+  const normalizeError = (err: unknown): { message: string; code?: number | string } => {
+    if (err instanceof Error) {
+      const anyErr = err as any;
+      return { message: err.message || "Unknown error", code: anyErr?.code };
+    }
+    if (typeof err === "string") return { message: err };
+    if (err && typeof err === "object") {
+      const anyErr = err as Record<string, unknown>;
+      const msg =
+        typeof anyErr["message"] === "string"
+          ? (anyErr["message"] as string)
+          : JSON.stringify(anyErr);
+      const codeVal =
+        typeof anyErr["code"] === "string" || typeof anyErr["code"] === "number"
+          ? (anyErr["code"] as number | string)
+          : undefined;
+      return { message: msg, code: codeVal };
+    }
+    return { message: "Unknown error" };
+  };
+
+  const mapRegisterErrorToAlert = (err: unknown) => {
+    const { message } = normalizeError(err);
+    const msg = (message || "").toLowerCase();
+
+    if (msg.includes("username already exists")) {
+      Alert.alert("Registration Failed", "This username is already taken.");
       return;
     }
+    if (msg.includes("phone number already exists") || msg.includes("phonenumber already exists")) {
+      Alert.alert("Registration Failed", "This phone number is already registered.");
+      return;
+    }
+    if (msg.includes("email already exists in auth") || msg.includes("email already exists")) {
+      Alert.alert("Registration Failed", "This email already exists in Auth.");
+      return;
+    }
+
+    Alert.alert(
+      "Registration Failed",
+      "An error occurred during registration. Please try again."
+    );
+  };
+
+  const handleRegister = async () => {
+    if (!validateForm()) return;
 
     setIsLoading(true);
     try {
       const user = await registerUser(
-        email,
+        email.trim(),
         password,
-        firstName,
-        lastName,
-        username,
-        phoneNumber
+        firstName.trim(),
+        lastName.trim(),
+        username.trim(),
+        phoneNumber.trim()
       );
 
       if (user) {
-        // Registration successful
         navigation.navigate("register-pin");
       } else {
         Alert.alert("Registration Failed", "Unable to create account. Please try again.");
       }
-    } catch (error: any) {
-      // Handle specific error cases
-      if (error.message?.includes("email already exists")) {
-        Alert.alert("Registration Failed", "This email is already registered.");
-      } else if (error.message?.includes("username already exists")) {
-        Alert.alert("Registration Failed", "This username is already taken.");
-      } else {
-        Alert.alert(
-          "Registration Failed",
-          "An error occurred during registration. Please try again."
-        );
-      }
+    } catch (error: unknown) {
       console.error("Registration error:", error);
+      mapRegisterErrorToAlert(error);
     } finally {
       setIsLoading(false);
     }
@@ -135,24 +150,24 @@ const Register = () => {
 
   const renderErrorMessage = (field: string) => {
     if (errors[field]) {
-      return <Text className="text-red-500 text-xs mt-1">{errors[field]}</Text>;
+      return <Text className="mt-1 text-xs text-red-500">{errors[field]}</Text>;
     }
     return null;
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-green-400 justify-center items-center p-4">
+    <SafeAreaView className="items-center justify-center flex-1 p-4 bg-green-400">
       <StatusBar
         barStyle="light-content"
         backgroundColor="transparent"
         translucent={true}
       />
-      <View className="w-full max-w-sm items-center mb-8">
+      <View className="items-center w-full max-w-sm mb-8">
         {/* Logo Circle */}
-        <View className="w-24 h-24 bg-green-700 rounded-full justify-center items-center overflow-hidden">
+        <View className="items-center justify-center w-24 h-24 overflow-hidden bg-green-700 rounded-full">
           <Image
             source={require("../assets/images/QuickRide.png")}
-            className="w-24 h-24 object-contain"
+            className="object-contain w-24 h-24"
           />
         </View>
       </View>
@@ -162,8 +177,7 @@ const Register = () => {
         {/* First Name Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.firstName ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.firstName ? "border-red-500" : "border-gray-200"} bg-white text-gray-800`}
             placeholder=""
             value={firstName}
             onChangeText={setFirstName}
@@ -171,10 +185,7 @@ const Register = () => {
             onBlur={() => setIsFirstNameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isFirstNameFocused || firstName
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isFirstNameFocused || firstName ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             First Name
           </Text>
@@ -184,8 +195,7 @@ const Register = () => {
         {/* Last Name Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.lastName ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.lastName ? "border-red-500" : "border-gray-200"} bg-white text-gray-800`}
             placeholder=""
             value={lastName}
             onChangeText={setLastName}
@@ -193,10 +203,7 @@ const Register = () => {
             onBlur={() => setIsLastNameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isLastNameFocused || lastName
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isLastNameFocused || lastName ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             Last Name
           </Text>
@@ -206,8 +213,7 @@ const Register = () => {
         {/* Email Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.email ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.email ? "border-red-500" : "border-gray-200"} bg-white text-gray-800`}
             placeholder=""
             value={email}
             onChangeText={setEmail}
@@ -217,10 +223,7 @@ const Register = () => {
             onBlur={() => setIsEmailFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isEmailFocused || email
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isEmailFocused || email ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             Email
           </Text>
@@ -230,8 +233,7 @@ const Register = () => {
         {/* Phone Number Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.phoneNumber ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.phoneNumber ? "border-red-500" : "border-gray-200"} bg-white text-gray-800`}
             placeholder=""
             value={phoneNumber}
             onChangeText={setPhoneNumber}
@@ -240,10 +242,7 @@ const Register = () => {
             onBlur={() => setIsPhoneNumberFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isPhoneNumberFocused || phoneNumber
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isPhoneNumberFocused || phoneNumber ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             Phone Number
           </Text>
@@ -253,8 +252,7 @@ const Register = () => {
         {/* Username Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.username ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.username ? "border-red-500" : "border-gray-200"} bg-white text-gray-800`}
             placeholder=""
             value={username}
             onChangeText={setUsername}
@@ -263,10 +261,7 @@ const Register = () => {
             onBlur={() => setIsUsernameFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isUsernameFocused || username
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isUsernameFocused || username ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             Username
           </Text>
@@ -276,8 +271,7 @@ const Register = () => {
         {/* Password Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.password ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800 pr-12`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.password ? "border-red-500" : "border-gray-200"} bg-white text-gray-800 pr-12`}
             placeholder=""
             secureTextEntry={!showPassword}
             value={password}
@@ -286,16 +280,13 @@ const Register = () => {
             onBlur={() => setIsPasswordFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isPasswordFocused || password
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isPasswordFocused || password ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             Password
           </Text>
           <TouchableOpacity
             onPress={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2"
+            className="absolute -translate-y-1/2 right-3 top-1/2"
           >
             {showPassword ? (
               <Icon name="visibility-off" size={24} color="#6B7280" />
@@ -309,8 +300,7 @@ const Register = () => {
         {/* Re-type Password Input */}
         <View className="relative mb-4">
           <TextInput
-            className={`w-full px-4 py-3 rounded-lg border ${errors.reTypePassword ? "border-red-500" : "border-gray-200"
-              } bg-white text-gray-800 pr-12`}
+            className={`w-full px-4 py-3 rounded-lg border ${errors.reTypePassword ? "border-red-500" : "border-gray-200"} bg-white text-gray-800 pr-12`}
             placeholder=""
             secureTextEntry={!showReTypePassword}
             value={reTypePassword}
@@ -319,16 +309,13 @@ const Register = () => {
             onBlur={() => setIsReTypePasswordFocused(false)}
           />
           <Text
-            className={`absolute left-4 transition-all text-sm ${isReTypePasswordFocused || reTypePassword
-              ? "-top-2.5 text-gray-600"
-              : "top-3.5 text-gray-400"
-              }`}
+            className={`absolute left-4 transition-all text-sm ${isReTypePasswordFocused || reTypePassword ? "-top-2.5 text-gray-600" : "top-3.5 text-gray-400"}`}
           >
             Re-type Password
           </Text>
           <TouchableOpacity
             onPress={() => setShowReTypePassword(!showReTypePassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2"
+            className="absolute -translate-y-1/2 right-3 top-1/2"
           >
             {showReTypePassword ? (
               <Icon name="visibility-off" size={24} color="#6B7280" />
@@ -341,25 +328,24 @@ const Register = () => {
 
         {/* Buttons */}
         <TouchableOpacity
-          className={`w-full ${isLoading ? "bg-blue-400" : "bg-blue-600"
-            } py-3 rounded-lg hover:bg-blue-700 transition-colors mb-4`}
+          className={`w-full ${isLoading ? "bg-blue-400" : "bg-blue-600"} py-3 rounded-lg hover:bg-blue-700 transition-colors mb-4`}
           onPress={handleRegister}
           disabled={isLoading}
         >
           {isLoading ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text className="text-white text-center text-lg">Register</Text>
+            <Text className="text-lg text-center text-white">Register</Text>
           )}
         </TouchableOpacity>
 
         {/* Login Link */}
         <TouchableOpacity
-          className="w-full bg-white text-gray-800 py-3 rounded-lg hover:bg-gray-50 transition-colors"
+          className="w-full py-3 text-gray-800 transition-colors bg-white rounded-lg hover:bg-gray-50"
           onPress={() => navigation.navigate("sign-in")}
           disabled={isLoading}
         >
-          <Text className="text-gray-800 text-center text-lg">
+          <Text className="text-lg text-center text-gray-800">
             Already have an account? <Text className="underline">Login</Text>
           </Text>
         </TouchableOpacity>
