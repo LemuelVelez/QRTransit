@@ -1,4 +1,4 @@
-import { ID } from "react-native-appwrite";
+import { ID, Query } from "react-native-appwrite";
 import { databases, config } from "./appwrite";
 import Constants from "expo-constants";
 
@@ -32,6 +32,32 @@ const getFareCollectionId = () =>
 
 const getDatabaseId = () => config.databaseId || "";
 
+// ---- pagination controls (safe defaults) ----
+const PAGE_LIMIT = 100; // 1..100 per Appwrite
+const HARD_CAP = 1000; // overall ceiling to avoid overloading API
+
+async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: any[] = [],
+  pageLimit = PAGE_LIMIT,
+  hardCap = HARD_CAP
+): Promise<any[]> {
+  const out: any[] = [];
+  let cursor: string | null = null;
+  const limit = Math.max(1, Math.min(100, pageLimit));
+  while (out.length < hardCap) {
+    const q = [...baseQueries, Query.limit(limit)];
+    if (cursor) q.push(Query.cursorAfter(cursor));
+    const res = await databases.listDocuments(databaseId, collectionId, q);
+    const docs = res?.documents ?? [];
+    out.push(...docs);
+    if (docs.length < limit) break;
+    cursor = docs[docs.length - 1].$id;
+  }
+  return out.slice(0, hardCap);
+}
+
 // Utility functions
 const clamp = (n: number, min: number, max: number) =>
   Math.max(min, Math.min(max, n));
@@ -47,8 +73,10 @@ export async function getFareConfigurations(): Promise<FareConfig[]> {
     const col = getFareCollectionId();
     if (!db || !col) return [];
 
-    const res = await databases.listDocuments(db, col, []);
-    return (res.documents || []).map((doc: any) => ({
+    const docs = await listAllDocuments(db, col, [
+      Query.orderDesc("$createdAt"),
+    ]);
+    return docs.map((doc: any) => ({
       id: doc.$id,
       fare: String(doc.fare || "0"),
       kilometer: String(doc.kilometer || "0"),

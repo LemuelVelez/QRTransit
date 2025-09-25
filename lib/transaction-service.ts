@@ -34,6 +34,60 @@ export interface Notification {
   data?: any;
 }
 
+/** ---------- Pagination helpers (to lift the 25-doc default) ---------- */
+const PAGE_SIZE = 100; // Appwrite max is typically 100 per page
+// Optional safety cap. Set EXPO_PUBLIC_FETCH_MAX_DOCS=0 or unset for no cap.
+const ENV_MAX_DOCS = Number.parseInt(
+  process.env.EXPO_PUBLIC_FETCH_MAX_DOCS ?? "0",
+  10
+);
+const GLOBAL_MAX_DOCS: number | undefined =
+  Number.isFinite(ENV_MAX_DOCS) && ENV_MAX_DOCS > 0 ? ENV_MAX_DOCS : undefined;
+
+/**
+ * Fetch all documents for a given query by paging with cursorAfter.
+ * Provide a stable order (e.g., orderDesc("timestamp") or orderDesc("$createdAt")) in baseQueries.
+ */
+async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: string[],
+  opts?: { pageSize?: number; maxDocs?: number }
+): Promise<any[]> {
+  const limit = Math.min(Math.max(opts?.pageSize ?? PAGE_SIZE, 1), 100);
+  const maxDocs = opts?.maxDocs ?? GLOBAL_MAX_DOCS;
+
+  const all: any[] = [];
+  let cursor: string | null = null;
+
+  while (true) {
+    const queries = [...baseQueries, Query.limit(limit)];
+    if (cursor) queries.push(Query.cursorAfter(cursor));
+
+    const res = await databases.listDocuments(
+      databaseId,
+      collectionId,
+      queries
+    );
+    const docs = res.documents ?? [];
+    all.push(...docs);
+
+    if (maxDocs && all.length >= maxDocs) {
+      all.length = maxDocs; // trim to cap
+      break;
+    }
+
+    if (docs.length < limit) break;
+    cursor = docs[docs.length - 1].$id;
+
+    // Tiny pause to be gentle on API (optional)
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return all;
+}
+/** -------------------------------------------------------------------- */
+
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp);
   const now = new Date();
@@ -77,16 +131,12 @@ function transactionToNotification(
     case "RECEIVE":
       title = "Money Received";
       message = `You have received ₱${transaction.amount.toFixed(2)}`;
-      if (transaction.description) {
-        message += ` - ${transaction.description}`;
-      }
+      if (transaction.description) message += ` - ${transaction.description}`;
       break;
     case "SEND":
       title = "Money Sent";
       message = `You have sent ₱${transaction.amount.toFixed(2)}`;
-      if (transaction.description) {
-        message += ` - ${transaction.description}`;
-      }
+      if (transaction.description) message += ` - ${transaction.description}`;
       break;
     case "CASH_IN":
       title = "Cash In Successful";
@@ -121,16 +171,13 @@ export async function getAuthUserId(): Promise<string> {
   try {
     const authUser = await account.get();
     return authUser.$id;
-  } catch (error) {
+  } catch {
     try {
       const currentUser = await getCurrentUser();
-      if (currentUser && currentUser.$id) {
-        return currentUser.$id;
-      }
-    } catch (fallbackError) {
+      if (currentUser && currentUser.$id) return currentUser.$id;
+    } catch {
       // Silent fallback
     }
-
     throw new Error("Authentication error");
   }
 }
@@ -141,10 +188,8 @@ export async function createNotification(
   try {
     const databaseId = config.databaseId;
     const collectionId = getNotificationsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const userId = notification.userId || (await getAuthUserId());
     const isRead = notification.read === true;
@@ -176,21 +221,17 @@ export async function createNotification(
 export async function getUserNotifications(): Promise<Notification[]> {
   try {
     const userId = await getAuthUserId();
-
     const databaseId = config.databaseId;
     const collectionId = getNotificationsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-      return [];
-    }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
+    return docs.map((doc: any) => ({
       id: doc.$id,
       title: doc.title,
       message: doc.message,
@@ -200,11 +241,22 @@ export async function getUserNotifications(): Promise<Notification[]> {
       timestamp: Number(doc.timestamp),
       transactionId: doc.transactionId || undefined,
       userId: doc.userId,
-      priority: doc.priority,
+      priority:
+        typeof doc.priority === "number"
+          ? doc.priority
+          : Number(doc.priority ?? 0),
       icon: doc.icon,
-      data: doc.data ? JSON.parse(doc.data) : undefined,
+      data: doc.data
+        ? (() => {
+            try {
+              return JSON.parse(doc.data);
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined,
     }));
-  } catch (error) {
+  } catch {
     return [];
   }
 }
@@ -214,19 +266,14 @@ export async function getNotificationsByPeriod(
 ): Promise<Notification[]> {
   try {
     const notifications = await getUserNotifications();
-
-    if (!notifications || notifications.length === 0) {
-      return [];
-    }
+    if (!notifications || notifications.length === 0) return [];
 
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
     const cutoffTimestamp = cutoffDate.getTime();
 
-    return notifications.filter(
-      (notification) => notification.timestamp >= cutoffTimestamp
-    );
-  } catch (error) {
+    return notifications.filter((n) => n.timestamp >= cutoffTimestamp);
+  } catch {
     return [];
   }
 }
@@ -237,10 +284,8 @@ export async function markNotificationAsRead(
   try {
     const databaseId = config.databaseId;
     const collectionId = getNotificationsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     await databases.updateDocument(databaseId, collectionId, notificationId, {
       read: true,
@@ -253,26 +298,24 @@ export async function markNotificationAsRead(
 export async function markAllNotificationsAsRead(): Promise<void> {
   try {
     const userId = await getAuthUserId();
-
     const databaseId = config.databaseId;
     const collectionId = getNotificationsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const unreadDocs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.equal("read", false),
+      Query.orderDesc("timestamp"),
     ]);
 
-    const updatePromises = response.documents.map((doc) =>
-      databases.updateDocument(databaseId, collectionId, doc.$id, {
-        read: true,
-      })
+    await Promise.all(
+      unreadDocs.map((doc: any) =>
+        databases.updateDocument(databaseId, collectionId, doc.$id, {
+          read: true,
+        })
+      )
     );
-
-    await Promise.all(updatePromises);
   } catch (error) {
     throw error;
   }
@@ -285,38 +328,25 @@ export async function createTransactionNotification(
   try {
     const databaseId = config.databaseId;
     const collectionId = getNotificationsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const userId = specificUserId || transaction.userId;
 
     try {
-      const existingNotifications = await databases.listDocuments(
-        databaseId,
-        collectionId,
-        [
-          Query.equal("transactionId", transaction.id),
-          Query.equal("userId", userId),
-          Query.limit(1),
-        ]
-      );
-
-      if (existingNotifications.documents.length > 0) {
-        return;
-      }
-    } catch (checkError) {
+      const existing = await databases.listDocuments(databaseId, collectionId, [
+        Query.equal("transactionId", transaction.id),
+        Query.equal("userId", userId),
+        Query.limit(1),
+      ]);
+      if (existing.documents.length > 0) return;
+    } catch {
       // Continue with notification creation even if check fails
     }
 
     const notificationData = transactionToNotification(transaction);
-
-    await createNotification({
-      ...notificationData,
-      userId: userId,
-    });
-  } catch (error) {
+    await createNotification({ ...notificationData, userId });
+  } catch {
     // Silent error handling
   }
 }
@@ -336,12 +366,9 @@ async function calculateNewBalance(
   try {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    // Only consider COMPLETED transactions for balance calculation
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.equal("status", "COMPLETED"),
@@ -350,23 +377,16 @@ async function calculateNewBalance(
     ]);
 
     let currentBalance = 0;
-
     if (response.documents.length > 0) {
       currentBalance = Number.parseFloat(response.documents[0].balance || "0");
     }
 
     let newBalance = currentBalance;
-
-    // Only update balance for COMPLETED transactions
     if (transaction.status === "COMPLETED") {
-      if (transaction.type === "CASH_IN" || transaction.type === "RECEIVE") {
+      if (transaction.type === "CASH_IN" || transaction.type === "RECEIVE")
         newBalance += transaction.amount;
-      } else if (
-        transaction.type === "CASH_OUT" ||
-        transaction.type === "SEND"
-      ) {
+      else if (transaction.type === "CASH_OUT" || transaction.type === "SEND")
         newBalance -= transaction.amount;
-      }
     }
 
     return newBalance;
@@ -379,29 +399,21 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     try {
-      const existingTransactions = await databases.listDocuments(
-        databaseId,
-        collectionId,
-        [Query.equal("transactionId", transaction.id), Query.limit(1)]
-      );
-
-      if (existingTransactions.documents.length > 0) {
-        return;
-      }
-    } catch (checkError) {
-      // Continue with transaction creation even if check fails
+      const existing = await databases.listDocuments(databaseId, collectionId, [
+        Query.equal("transactionId", transaction.id),
+        Query.limit(1),
+      ]);
+      if (existing.documents.length > 0) return;
+    } catch {
+      // Continue even if check fails
     }
 
-    // Set default status to PENDING if not provided
     const status = transaction.status || "PENDING";
 
-    // Only calculate new balance for COMPLETED transactions
     let balance = 0;
     if (status === "COMPLETED") {
       balance = await calculateNewBalance(transaction.userId, {
@@ -409,7 +421,6 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
         status: "COMPLETED",
       });
     } else {
-      // For PENDING transactions, get the current balance without adding the new amount
       const currentBalanceResponse = await databases.listDocuments(
         databaseId,
         collectionId,
@@ -420,7 +431,6 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
           Query.limit(1),
         ]
       );
-
       if (currentBalanceResponse.documents.length > 0) {
         balance = Number.parseFloat(
           currentBalanceResponse.documents[0].balance || "0"
@@ -439,7 +449,7 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
       userId: transaction.userId,
       balance: balance.toString(),
       recipientId: transaction.recipientId || "",
-      status: status,
+      status,
     });
   } catch (error) {
     throw error;
@@ -449,9 +459,8 @@ export async function saveTransaction(transaction: Transaction): Promise<void> {
 export async function getUserTransactions(): Promise<Transaction[]> {
   try {
     const userId = await getAuthUserId();
-
     return getTransactions(userId);
-  } catch (error) {
+  } catch {
     return [];
   }
 }
@@ -460,18 +469,15 @@ export async function getTransactions(userId: string): Promise<Transaction[]> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-      return [];
-    }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
+    return docs.map((doc: any) => ({
       id: doc.transactionId,
       type: doc.type,
       amount: Number.parseFloat(doc.amount),
@@ -484,7 +490,7 @@ export async function getTransactions(userId: string): Promise<Transaction[]> {
       recipientId: doc.recipientId || undefined,
       status: doc.status || "PENDING",
     }));
-  } catch (error) {
+  } catch {
     return [];
   }
 }
@@ -492,21 +498,17 @@ export async function getTransactions(userId: string): Promise<Transaction[]> {
 export async function getAllUserTransactions(): Promise<Transaction[]> {
   try {
     const userId = await getAuthUserId();
-
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-      return [];
-    }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
+    return docs.map((doc: any) => ({
       id: doc.transactionId,
       type: doc.type,
       amount: Number.parseFloat(doc.amount),
@@ -519,29 +521,24 @@ export async function getAllUserTransactions(): Promise<Transaction[]> {
       recipientId: doc.recipientId || undefined,
       status: doc.status || "PENDING",
     }));
-  } catch (error) {
+  } catch {
     return [];
   }
 }
 
 export function generateTransactionId(): string {
-  // Generate a 10-digit numeric transaction ID
   return Math.floor(1000000000 + Math.random() * 9000000000).toString();
 }
 
-// Add wallet limit constant
 export const WALLET_LIMIT = 10000; // 10,000 pesos
 
 export async function calculateUserBalance(userId: string): Promise<number> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    // Only consider COMPLETED transactions for balance calculation
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.equal("status", "COMPLETED"),
@@ -549,10 +546,7 @@ export async function calculateUserBalance(userId: string): Promise<number> {
       Query.limit(1),
     ]);
 
-    if (response.documents.length === 0) {
-      return 0;
-    }
-
+    if (response.documents.length === 0) return 0;
     return Number.parseFloat(response.documents[0].balance || "0");
   } catch (error) {
     throw error;
@@ -562,9 +556,8 @@ export async function calculateUserBalance(userId: string): Promise<number> {
 export async function getCurrentUserBalance(): Promise<number> {
   try {
     const userId = await getAuthUserId();
-
     return calculateUserBalance(userId);
-  } catch (error) {
+  } catch {
     return 0;
   }
 }
@@ -573,30 +566,23 @@ export async function recalculateAllBalances(userId: string): Promise<void> {
   try {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    // Only consider COMPLETED transactions for recalculation
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("userId", userId),
       Query.equal("status", "COMPLETED"),
       Query.orderAsc("timestamp"),
     ]);
 
     let runningBalance = 0;
-
-    for (const doc of response.documents) {
+    for (const doc of docs) {
       const amount = Number.parseFloat(doc.amount);
       const type = doc.type;
+      if (type === "CASH_IN" || type === "RECEIVE") runningBalance += amount;
+      else if (type === "CASH_OUT" || type === "SEND") runningBalance -= amount;
 
-      if (type === "CASH_IN" || type === "RECEIVE") {
-        runningBalance += amount;
-      } else if (type === "CASH_OUT" || type === "SEND") {
-        runningBalance -= amount;
-      }
-
+      // eslint-disable-next-line no-await-in-loop
       await databases.updateDocument(databaseId, collectionId, doc.$id, {
         balance: runningBalance.toString(),
       });
@@ -610,10 +596,8 @@ async function getAuthUserIdForUser(userDocId: string): Promise<string> {
   try {
     const databaseId = config.databaseId;
     const usersCollectionId = getUsersCollectionId();
-
-    if (!databaseId || !usersCollectionId) {
+    if (!databaseId || !usersCollectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     try {
       const userDoc = await databases.getDocument(
@@ -621,16 +605,12 @@ async function getAuthUserIdForUser(userDocId: string): Promise<string> {
         usersCollectionId,
         userDocId
       );
-
-      if (userDoc && userDoc.userId) {
-        return userDoc.userId;
-      }
-
+      if (userDoc && userDoc.userId) return userDoc.userId;
       return userDocId;
-    } catch (docError) {
+    } catch {
       return userDocId;
     }
-  } catch (error) {
+  } catch {
     return userDocId;
   }
 }
@@ -639,10 +619,8 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
   try {
     const databaseId = config.databaseId;
     const usersCollectionId = getUsersCollectionId();
-
-    if (!databaseId || !usersCollectionId) {
+    if (!databaseId || !usersCollectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
     const fieldNamesToSearch = [
       "phonenumber",
@@ -659,11 +637,8 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
           usersCollectionId,
           [Query.equal(field, searchTerm), Query.limit(1)]
         );
-
-        if (response.documents.length > 0) {
-          return response.documents[0];
-        }
-      } catch (fieldError) {
+        if (response.documents.length > 0) return response.documents[0];
+      } catch {
         // Continue to next field
       }
     }
@@ -671,9 +646,7 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
     try {
       const nameParts = searchTerm.split(" ");
       if (nameParts.length === 2) {
-        const firstName = nameParts[0];
-        const lastName = nameParts[1];
-
+        const [firstName, lastName] = nameParts;
         const response = await databases.listDocuments(
           databaseId,
           usersCollectionId,
@@ -683,23 +656,19 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
             Query.limit(1),
           ]
         );
-
-        if (response.documents.length > 0) {
-          return response.documents[0];
-        }
+        if (response.documents.length > 0) return response.documents[0];
       }
-    } catch (nameError) {
-      // Continue to next approach
+    } catch {
+      // Continue
     }
 
     try {
-      const response = await databases.listDocuments(
+      const firstBatch = await databases.listDocuments(
         databaseId,
         usersCollectionId,
         [Query.limit(100)]
       );
-
-      for (const doc of response.documents) {
+      for (const doc of firstBatch.documents) {
         for (const [key, value] of Object.entries(doc)) {
           if (
             typeof value === "string" &&
@@ -712,9 +681,9 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
         }
       }
 
-      for (const doc of response.documents) {
-        const firstName = doc.firstname || "";
-        const lastName = doc.lastname || "";
+      for (const doc of firstBatch.documents) {
+        const firstName = (doc as any).firstname || "";
+        const lastName = (doc as any).lastname || "";
         const fullName = `${firstName} ${lastName}`.trim();
 
         if (
@@ -737,8 +706,8 @@ async function findUserByNameOrNumber(searchTerm: string): Promise<any | null> {
           }
         }
       }
-    } catch (error) {
-      // Silent error handling
+    } catch {
+      // Silent
     }
 
     return null;
@@ -755,7 +724,6 @@ export async function createSendTransaction(
   try {
     const senderAuthUserId = await getAuthUserId();
 
-    // Check if user has sufficient balance before sending
     const currentBalance = await getCurrentUserBalance();
     if (currentBalance < amount) {
       throw new Error(
@@ -766,24 +734,15 @@ export async function createSendTransaction(
     }
 
     const currentUser = await getCurrentUser();
-    if (!currentUser) {
-      throw new Error("No authenticated user found");
-    }
+    if (!currentUser) throw new Error("No authenticated user found");
 
     const recipient = await findUserByNameOrNumber(recipientIdentifier);
-    if (!recipient) {
-      throw new Error("Recipient not found");
-    }
+    if (!recipient) throw new Error("Recipient not found");
 
     const recipientUserId = recipient.userId;
-
-    if (!recipientUserId) {
-      throw new Error("Invalid recipient information");
-    }
-
-    if (recipientUserId === senderAuthUserId) {
+    if (!recipientUserId) throw new Error("Invalid recipient information");
+    if (recipientUserId === senderAuthUserId)
       throw new Error("You cannot send money to yourself");
-    }
 
     const timestamp = Date.now();
     const transactionId = generateTransactionId();
@@ -791,23 +750,19 @@ export async function createSendTransaction(
     const sendTransaction: Transaction = {
       id: transactionId,
       type: "SEND",
-      amount: amount,
+      amount,
       description:
         note || `Sent to ${recipient.firstname || recipientIdentifier}`,
-      timestamp: timestamp,
+      timestamp,
       userId: senderAuthUserId,
       recipientId: recipientUserId,
-      status: "COMPLETED", // Send transactions are completed immediately
+      status: "COMPLETED",
     };
 
     await saveTransaction(sendTransaction);
-
     await createTransactionNotification(sendTransaction, senderAuthUserId);
 
-    const {
-      transaction: receiveTransaction,
-      newBalance,
-    } = await createReceiveTransaction(
+    const { transaction: receiveTransaction } = await createReceiveTransaction(
       recipientUserId,
       amount,
       note || `Received from ${currentUser.firstname || "User"}`,
@@ -817,21 +772,19 @@ export async function createSendTransaction(
         senderName: currentUser.firstname || "User",
       }
     );
+
+    // Optionally do something with receiveTransaction if needed
+    void receiveTransaction;
   } catch (error) {
     throw error;
   }
 }
 
-// Update the createReceiveTransaction function to check wallet limit
 export async function createReceiveTransaction(
   userId: string,
   amount: number,
   description: string,
-  options?: {
-    reference?: string;
-    senderId?: string;
-    senderName?: string;
-  }
+  options?: { reference?: string; senderId?: string; senderName?: string }
 ): Promise<{ transaction: Transaction; newBalance: number }> {
   try {
     const timestamp = Date.now();
@@ -842,8 +795,6 @@ export async function createReceiveTransaction(
     }
 
     const currentBalance = await calculateUserBalance(userId);
-
-    // Check if transaction would exceed wallet limit
     if (currentBalance + amount > WALLET_LIMIT) {
       throw new Error(
         `Transaction would exceed wallet limit of ₱${WALLET_LIMIT.toLocaleString()}`
@@ -855,22 +806,19 @@ export async function createReceiveTransaction(
     const receiveTransaction: Transaction = {
       id: options?.reference ? `${options.reference}_receive` : transactionId,
       type: "RECEIVE",
-      amount: amount,
+      amount,
       description: description || "Money received",
-      timestamp: timestamp,
-      userId: userId,
+      timestamp,
+      userId,
       reference: options?.reference || "",
       balance: newBalance,
-      status: "COMPLETED", // Receive transactions are completed immediately
+      status: "COMPLETED",
     };
 
     await saveTransaction(receiveTransaction);
     await createTransactionNotification(receiveTransaction, userId);
 
-    return {
-      transaction: receiveTransaction,
-      newBalance: newBalance,
-    };
+    return { transaction: receiveTransaction, newBalance };
   } catch (error) {
     throw error;
   }
@@ -879,33 +827,28 @@ export async function createReceiveTransaction(
 export async function fixNotificationUserIds(): Promise<number> {
   try {
     const authUserId = await getAuthUserId();
-
     const databaseId = config.databaseId;
     const collectionId = getNotificationsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    const response = await databases.listDocuments(databaseId, collectionId);
+    const docs = await listAllDocuments(databaseId, collectionId, [
+      Query.orderDesc("$createdAt"),
+    ]);
 
     let updatedCount = 0;
-
-    for (const doc of response.documents) {
-      if (doc.userId === authUserId) {
-        continue;
-      }
-
+    for (const doc of docs) {
+      if (doc.userId === authUserId) continue;
       try {
+        // eslint-disable-next-line no-await-in-loop
         await databases.updateDocument(databaseId, collectionId, doc.$id, {
           userId: authUserId,
         });
         updatedCount++;
-      } catch (updateError) {
-        // Silent error handling
+      } catch {
+        // Silent
       }
     }
-
     return updatedCount;
   } catch (error) {
     throw error;
@@ -917,50 +860,40 @@ export async function fixTransactionUserIds(): Promise<number> {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
     const usersCollectionId = getUsersCollectionId();
-
-    if (!databaseId || !collectionId || !usersCollectionId) {
+    if (!databaseId || !collectionId || !usersCollectionId)
       throw new Error("Appwrite configuration missing");
+
+    const users = await listAllDocuments(databaseId, usersCollectionId, [
+      Query.orderDesc("$createdAt"),
+    ]);
+    const userIdMap = new Map<string, string>();
+    for (const user of users) {
+      if (user.authUserId) userIdMap.set(user.$id, user.authUserId);
     }
 
-    const usersResponse = await databases.listDocuments(
-      databaseId,
-      usersCollectionId
-    );
-
-    const userIdMap = new Map();
-    for (const user of usersResponse.documents) {
-      if (user.authUserId) {
-        userIdMap.set(user.$id, user.authUserId);
-      }
-    }
-
-    const transactionsResponse = await databases.listDocuments(
-      databaseId,
-      collectionId
-    );
+    const transactions = await listAllDocuments(databaseId, collectionId, [
+      Query.orderDesc("$createdAt"),
+    ]);
 
     let updatedCount = 0;
-
-    for (const doc of transactionsResponse.documents) {
-      const userId = doc.userId;
-
-      if (userId && userId.startsWith("auth_")) {
-        continue;
-      }
+    for (const doc of transactions) {
+      const userId = doc.userId as string | undefined;
+      if (!userId) continue;
+      if (userId.startsWith("auth_")) continue;
 
       const authUserId = userIdMap.get(userId);
       if (authUserId) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           await databases.updateDocument(databaseId, collectionId, doc.$id, {
             userId: authUserId,
           });
           updatedCount++;
-        } catch (updateError) {
-          // Silent error handling
+        } catch {
+          // Silent
         }
       }
     }
-
     return updatedCount;
   } catch (error) {
     throw error;
@@ -971,33 +904,28 @@ export async function syncUserIdsWithAuth(): Promise<void> {
   try {
     const databaseId = config.databaseId;
     const usersCollectionId = getUsersCollectionId();
-
-    if (!databaseId || !usersCollectionId) {
+    if (!databaseId || !usersCollectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    const usersResponse = await databases.listDocuments(
-      databaseId,
-      usersCollectionId
-    );
+    const users = await listAllDocuments(databaseId, usersCollectionId, [
+      Query.orderDesc("$createdAt"),
+    ]);
 
-    for (const user of usersResponse.documents) {
-      if (user.authUserId) {
-        continue;
-      }
+    for (const user of users) {
+      if (user.authUserId) continue;
 
       try {
         const authUserId = null;
-
         if (user.email) {
           try {
-            // Implementation removed
-          } catch (emailError) {
-            // Silent error handling
+            // (left intentionally unimplemented)
+          } catch {
+            // Silent
           }
         }
 
         if (authUserId) {
+          // eslint-disable-next-line no-await-in-loop
           await databases.updateDocument(
             databaseId,
             usersCollectionId,
@@ -1007,12 +935,12 @@ export async function syncUserIdsWithAuth(): Promise<void> {
             }
           );
         }
-      } catch (updateError) {
-        // Silent error handling
+      } catch {
+        // Silent
       }
     }
-  } catch (error) {
-    // Silent error handling
+  } catch {
+    // Silent
   }
 }
 
@@ -1023,41 +951,27 @@ export async function updateTransactionStatus(
   try {
     const databaseId = config.databaseId;
     const collectionId = getTransactionsCollectionId();
-
-    if (!databaseId || !collectionId) {
+    if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
-    }
 
-    // Find the transaction document by transactionId
     const response = await databases.listDocuments(databaseId, collectionId, [
       Query.equal("transactionId", transactionId),
       Query.limit(1),
     ]);
-
-    if (response.documents.length === 0) {
+    if (response.documents.length === 0)
       throw new Error(`Transaction with ID ${transactionId} not found`);
-    }
 
     const transactionDoc = response.documents[0];
     const oldStatus = transactionDoc.status || "PENDING";
+    if (oldStatus === status) return;
 
-    // If status is already set to the requested status, no need to update
-    if (oldStatus === status) {
-      return;
-    }
-
-    // Update the transaction status
     await databases.updateDocument(
       databaseId,
       collectionId,
       transactionDoc.$id,
-      {
-        status: status,
-      }
+      { status }
     );
 
-    // If the transaction is completed and it's a CASH_IN transaction,
-    // we need to update the balance
     if (status === "COMPLETED") {
       const transaction: Transaction = {
         id: transactionId,
@@ -1071,10 +985,8 @@ export async function updateTransactionStatus(
         status: "COMPLETED",
       };
 
-      // Recalculate the balance for this user
       await recalculateAllBalances(transaction.userId);
 
-      // Create notification for completed transaction
       try {
         await createTransactionNotification(transaction);
       } catch (notificationError) {
@@ -1082,7 +994,6 @@ export async function updateTransactionStatus(
           "Error creating transaction notification:",
           notificationError
         );
-        // Continue even if notification creation fails
       }
     }
   } catch (error) {

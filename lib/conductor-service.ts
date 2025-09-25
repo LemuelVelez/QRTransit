@@ -1,4 +1,4 @@
-import { databases, config } from "./appwrite";
+import { databases, config, listAllDocuments } from "./appwrite";
 import { Query } from "react-native-appwrite";
 
 interface ConductorStats {
@@ -32,12 +32,12 @@ export async function getUserStats(
       throw new Error("Appwrite configuration missing");
     }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
-      Query.equal("conductorId", conductorId),
-      Query.orderDesc("timestamp"),
-    ]);
-
-    const trips = response.documents;
+    const trips = await listAllDocuments(
+      databaseId,
+      collectionId,
+      [Query.equal("conductorId", conductorId), Query.orderDesc("timestamp")],
+      { batchSize: 100, maxDocs: 5000 }
+    );
 
     const remittanceResponse = await databases.listDocuments(
       databaseId,
@@ -60,13 +60,13 @@ export async function getUserStats(
     const uniqueTrips = new Set<string>();
     let passengerSum = 0;
 
-    trips.forEach((trip) => {
+    trips.forEach((trip: any) => {
       if (Number(trip.timestamp) > Number(cutoffTimestamp)) {
         uniqueTrips.add(`${trip.from}-${trip.to}`);
 
         // Prefer totalFare if present
         const totalStr = (trip.totalFare || trip.fare || "₱0").toString();
-        const amount = parseFloat(String(totalStr).replace(/[^\d.]/g, "")) || 0;
+        const amount = Number(String(totalStr).replace(/[^\d.]/g, "")) || 0;
         totalRevenue += amount;
 
         // Sum passengers using passengerCount if available, else 1

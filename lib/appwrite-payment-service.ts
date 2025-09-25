@@ -1,6 +1,6 @@
 // lib/appwrite-payment-service.ts
 import { ID, Query } from "react-native-appwrite";
-import { databases, config, client } from "./appwrite";
+import { databases, config, client, listAllDocuments } from "./appwrite";
 
 const PAYMENT_REQUESTS_COLLECTION_ID =
   process.env.EXPO_PUBLIC_APPWRITE_PAYMENT_REQUESTS_COLLECTION_ID ?? "";
@@ -136,18 +136,23 @@ export async function getPaymentRequests(
   if (!databaseId || !collectionId)
     throw new Error("Appwrite configuration missing");
 
-  const queries = [
+  const baseQueries = [
     Query.equal(role === "passenger" ? "passengerId" : "conductorId", userId),
+    Query.orderDesc("timestamp"),
   ];
-  if (status) queries.push(Query.equal("status", status));
+  if (status) baseQueries.push(Query.equal("status", status));
 
-  const response = await databases.listDocuments(
+  const documents = await listAllDocuments(
     databaseId,
     collectionId,
-    queries
+    baseQueries,
+    {
+      batchSize: 100,
+      maxDocs: 1000,
+    }
   );
 
-  return response.documents.map((doc: any) => ({
+  return documents.map((doc: any) => ({
     id: doc.$id,
     conductorId: doc.conductorId,
     conductorName: doc.conductorName,

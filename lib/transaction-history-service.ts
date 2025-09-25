@@ -14,6 +14,32 @@ interface Transaction {
   passengerPhoto?: string;
 }
 
+// ---- pagination helpers ----
+const PAGE_LIMIT = 100;
+const HARD_CAP = 1000;
+
+async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: any[] = [],
+  pageLimit = PAGE_LIMIT,
+  hardCap = HARD_CAP
+): Promise<any[]> {
+  const out: any[] = [];
+  let cursor: string | null = null;
+  const limit = Math.max(1, Math.min(100, pageLimit));
+  while (out.length < hardCap) {
+    const q = [...baseQueries, Query.limit(limit)];
+    if (cursor) q.push(Query.cursorAfter(cursor));
+    const res = await databases.listDocuments(databaseId, collectionId, q);
+    const docs = res?.documents ?? [];
+    out.push(...docs);
+    if (docs.length < limit) break;
+    cursor = docs[docs.length - 1].$id;
+  }
+  return out.slice(0, hardCap);
+}
+
 // Get the collection ID for transactions
 const getTransactionsCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_TRANSACTIONS_COLLECTION_ID || "";
@@ -25,7 +51,7 @@ export function generateTransactionId(): string {
   return Math.floor(1000000000 + Math.random() * 9000000000).toString();
 }
 
-// Get transaction history for a conductor
+// Get transaction history for a conductor (paginated)
 export async function getTransactionHistory(
   conductorId: string
 ): Promise<Transaction[]> {
@@ -35,15 +61,14 @@ export async function getTransactionHistory(
 
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
-      return [];
     }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
+    return docs.map((doc: any) => ({
       id: doc.$id,
       passengerName: doc.passengerName || "Unknown Passenger",
       fare: doc.fare || "₱0.00",
@@ -123,7 +148,7 @@ export async function saveTransaction(
   }
 }
 
-// Get transactions by date range
+// Get transactions by date range (paginated)
 export async function getTransactionsByDateRange(
   conductorId: string,
   startDate: Date,
@@ -135,21 +160,20 @@ export async function getTransactionsByDateRange(
 
     if (!databaseId || !collectionId) {
       throw new Error("Appwrite configuration missing");
-      return [];
     }
 
     // Convert dates to timestamps
     const startTimestamp = startDate.getTime().toString();
     const endTimestamp = endDate.setHours(23, 59, 59, 999).toString();
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.greaterThanEqual("timestamp", startTimestamp),
       Query.lessThanEqual("timestamp", endTimestamp),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc) => ({
+    return docs.map((doc: any) => ({
       id: doc.$id,
       passengerName: doc.passengerName || "Unknown Passenger",
       fare: doc.fare || "₱0.00",

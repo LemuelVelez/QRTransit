@@ -1,6 +1,6 @@
 // lib/cash-remittance-service.ts
 import { ID, Query } from "react-native-appwrite";
-import { databases, config } from "./appwrite";
+import { databases, config, listAllDocuments } from "./appwrite";
 
 export interface CashRemittance {
   id?: string;
@@ -172,12 +172,14 @@ export async function getRemittanceHistory(
     if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
 
-    const res = await databases.listDocuments(databaseId, collectionId, [
-      Query.equal("conductorId", conductorId),
-      Query.orderDesc("timestamp"),
-    ]);
+    const documents = await listAllDocuments(
+      databaseId,
+      collectionId,
+      [Query.equal("conductorId", conductorId), Query.orderDesc("timestamp")],
+      { batchSize: 100, maxDocs: 2000 }
+    );
 
-    return res.documents.map((doc) => ({
+    return documents.map((doc: any) => ({
       id: doc.$id,
       busId: doc.busId,
       busNumber: doc.busNumber,
@@ -217,13 +219,18 @@ export async function getPendingRemittances(
     if (!databaseId || !collectionId)
       throw new Error("Appwrite configuration missing");
 
-    const res = await databases.listDocuments(databaseId, collectionId, [
-      Query.equal("conductorId", conductorId),
-      Query.equal("status", "pending"),
-      Query.orderDesc("timestamp"),
-    ]);
+    const documents = await listAllDocuments(
+      databaseId,
+      collectionId,
+      [
+        Query.equal("conductorId", conductorId),
+        Query.equal("status", "pending"),
+        Query.orderDesc("timestamp"),
+      ],
+      { batchSize: 100, maxDocs: 2000 }
+    );
 
-    return res.documents.map((doc) => ({
+    return documents.map((doc: any) => ({
       id: doc.$id,
       busId: doc.busId,
       busNumber: doc.busNumber,
@@ -256,13 +263,15 @@ export async function getConductorRevenue(
 
     const cutoff = await getLatestVerificationCutoff(conductorId);
 
-    // Keep queries index-friendly: filter by conductorId in DB, then filter by method+cutoff in memory.
-    const res = await databases.listDocuments(databaseId, tripsCol, [
-      Query.equal("conductorId", conductorId),
-      Query.orderDesc("timestamp"),
-    ]);
+    // Fetch all trips for this conductor (paginated)
+    const docs = await listAllDocuments(
+      databaseId,
+      tripsCol,
+      [Query.equal("conductorId", conductorId), Query.orderDesc("timestamp")],
+      { batchSize: 100, maxDocs: 5000 }
+    );
 
-    const total = res.documents
+    const total = docs
       .filter((doc: any) => (doc.paymentMethod || "").toLowerCase() === "cash")
       .filter((doc: any) => {
         const ts = Number(doc.timestamp || 0);
@@ -295,13 +304,18 @@ export async function getUnremittedCashByBus(
 
     const cutoff = await getLatestVerificationCutoff(conductorId);
 
-    const res = await databases.listDocuments(databaseId, tripsCol, [
-      Query.equal("conductorId", conductorId),
-      Query.equal("busNumber", busNumber || ""),
-      Query.orderDesc("timestamp"),
-    ]);
+    const docs = await listAllDocuments(
+      databaseId,
+      tripsCol,
+      [
+        Query.equal("conductorId", conductorId),
+        Query.equal("busNumber", busNumber || ""),
+        Query.orderDesc("timestamp"),
+      ],
+      { batchSize: 100, maxDocs: 5000 }
+    );
 
-    const total = res.documents
+    const total = docs
       .filter((doc: any) => (doc.paymentMethod || "").toLowerCase() === "cash")
       .filter((doc: any) => {
         const ts = Number(doc.timestamp || 0);

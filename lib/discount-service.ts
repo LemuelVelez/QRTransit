@@ -1,12 +1,12 @@
 // lib/discount-service.ts
 import { ID } from "react-native-appwrite";
-import { databases, config } from "./appwrite";
+import { databases, config, listAllDocuments } from "./appwrite";
 import Constants from "expo-constants";
 
 export interface DiscountConfig {
   id?: string;
   passengerType: string; // "Regular" | "Student" | ... OR "BASE" for bus rules
-  busType?: string;      // Only present for bus type rows
+  busType?: string; // Only present for bus type rows
   discountPercentage: string;
   description?: string;
   active: boolean;
@@ -31,14 +31,17 @@ const readEnv = (key: string): string | undefined => {
 
 const getPassengerCollectionId = () => config.discountsCollectionId || "";
 const getBusTypeCollectionId = () =>
-  config.busTypeCollectionId || readEnv("EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID") || "";
+  config.busTypeCollectionId ||
+  readEnv("EXPO_PUBLIC_APPWRITE_BUS_TYPE_COLLECTION_ID") ||
+  "";
 const getDatabaseId = () => config.databaseId || "";
 
 // ---------------- utils ----------------
 const eq = (a?: string, b?: string) =>
   (a || "").toLowerCase().trim() === (b || "").toLowerCase().trim();
 
-const clampPct = (n: string | number) => Math.max(0, Math.min(100, Number(n) || 0));
+const clampPct = (n: string | number) =>
+  Math.max(0, Math.min(100, Number(n) || 0));
 const toMultiplierStrFromPct = (pct: string | number): string => {
   const n = Number(pct);
   if (!Number.isFinite(n)) return "1";
@@ -56,8 +59,11 @@ async function listPassengerDocs(): Promise<any[]> {
   const db = getDatabaseId();
   const col = getPassengerCollectionId();
   if (!db || !col) return [];
-  const res = await databases.listDocuments(db, col, []);
-  return res.documents || [];
+  const docs = await listAllDocuments(db, col, [], {
+    batchSize: 100,
+    maxDocs: 2000,
+  });
+  return docs || [];
 }
 
 async function listBusTypeDocs(): Promise<any[]> {
@@ -66,10 +72,16 @@ async function listBusTypeDocs(): Promise<any[]> {
 
   if (db && busCol) {
     try {
-      const r = await databases.listDocuments(db, busCol, []);
-      return r.documents || [];
+      const r = await listAllDocuments(db, busCol, [], {
+        batchSize: 100,
+        maxDocs: 2000,
+      });
+      return r || [];
     } catch (e) {
-      console.warn("listBusTypeDocs: bus collection read failed, trying fallback", e);
+      console.warn(
+        "listBusTypeDocs: bus collection read failed, trying fallback",
+        e
+      );
     }
   }
 
@@ -103,7 +115,8 @@ export async function getDiscountConfigurations(): Promise<DiscountConfig[]> {
     const busDocs = (await listBusTypeDocs()).map((doc: any) => {
       const pctString = doc.multiplier
         ? toPctStrFromMultiplier(String(doc.multiplier))
-        : doc.discountPercentage !== undefined && doc.discountPercentage !== null
+        : doc.discountPercentage !== undefined &&
+          doc.discountPercentage !== null
         ? String(doc.discountPercentage)
         : "0";
       return {
@@ -132,7 +145,8 @@ export async function saveDiscountConfiguration(
     if (!db) return null;
 
     const isBus =
-      !!String(data.busType ?? "").trim() || (data.passengerType || "").toUpperCase() === BASE;
+      !!String(data.busType ?? "").trim() ||
+      (data.passengerType || "").toUpperCase() === BASE;
 
     if (isBus) {
       const busCol = getBusTypeCollectionId();
@@ -148,7 +162,12 @@ export async function saveDiscountConfiguration(
         description: data.description || "",
         active: !!data.active,
       };
-      const res = await databases.createDocument(db, busCol, ID.unique(), payload);
+      const res = await databases.createDocument(
+        db,
+        busCol,
+        ID.unique(),
+        payload
+      );
       return res.$id || null;
     }
 
@@ -161,7 +180,12 @@ export async function saveDiscountConfiguration(
       description: data.description || "",
       active: !!data.active,
     };
-    const res = await databases.createDocument(db, passengerCol, ID.unique(), payload);
+    const res = await databases.createDocument(
+      db,
+      passengerCol,
+      ID.unique(),
+      payload
+    );
     return res.$id || null;
   } catch (e) {
     console.error("saveDiscountConfiguration error:", e);
@@ -177,10 +201,12 @@ export async function updateDiscountConfiguration(
   if (!db) return false;
 
   const passengerPayload: any = {};
-  if (data.passengerType !== undefined) passengerPayload.passengerType = data.passengerType;
+  if (data.passengerType !== undefined)
+    passengerPayload.passengerType = data.passengerType;
   if (data.discountPercentage !== undefined)
     passengerPayload.discountPercentage = String(data.discountPercentage);
-  if (data.description !== undefined) passengerPayload.description = data.description;
+  if (data.description !== undefined)
+    passengerPayload.description = data.description;
   if (data.active !== undefined) passengerPayload.active = !!data.active;
 
   const busPayload: any = {};
@@ -213,7 +239,9 @@ export async function updateDiscountConfiguration(
   return false;
 }
 
-export async function deleteDiscountConfiguration(id: string): Promise<boolean> {
+export async function deleteDiscountConfiguration(
+  id: string
+): Promise<boolean> {
   const db = getDatabaseId();
   if (!db) return false;
 
@@ -241,7 +269,10 @@ export async function deleteDiscountConfiguration(id: string): Promise<boolean> 
 }
 
 // ---------------- Queries / Helpers ----------------
-export async function getDiscountPercentage(passengerType: string, busType: string): Promise<number> {
+export async function getDiscountPercentage(
+  passengerType: string,
+  busType: string
+): Promise<number> {
   const all = await getDiscountConfigurations();
   const passengerOnly = all.filter((d) => d.active && d.passengerType !== BASE);
 
@@ -273,7 +304,9 @@ export async function getBusTypeConfigurations(): Promise<
   }
 }
 
-export async function getBusTypeFareMultiplier(busType: string): Promise<number> {
+export async function getBusTypeFareMultiplier(
+  busType: string
+): Promise<number> {
   const FALLBACK: Record<string, number> = {
     Regular: 1.0,
     Aircon: 1.2,
@@ -293,7 +326,10 @@ export async function getBusTypeFareMultiplier(busType: string): Promise<number>
         const m = Number(match.multiplier);
         if (Number.isFinite(m) && m > 0) return m;
       }
-      if (match.discountPercentage !== undefined && match.discountPercentage !== null) {
+      if (
+        match.discountPercentage !== undefined &&
+        match.discountPercentage !== null
+      ) {
         const pct = clampPct(match.discountPercentage);
         return 1 + pct / 100;
       }

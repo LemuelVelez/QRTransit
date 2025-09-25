@@ -4,6 +4,32 @@ import { getConductorName } from "./conductor-service"
 import { getDiscountConfigurations } from "./discount-service"
 import type { BusInfo, PassengerInfo, InspectionRecord } from "./types"
 
+// ---- pagination controls ----
+const PAGE_LIMIT = 100
+const HARD_CAP = 1000
+
+async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: any[] = [],
+  pageLimit = PAGE_LIMIT,
+  hardCap = HARD_CAP
+): Promise<any[]> {
+  const out: any[] = []
+  let cursor: string | null = null
+  const limit = Math.max(1, Math.min(100, pageLimit))
+  while (out.length < hardCap) {
+    const q = [...baseQueries, Query.limit(limit)]
+    if (cursor) q.push(Query.cursorAfter(cursor))
+    const res = await databases.listDocuments(databaseId, collectionId, q)
+    const docs = res?.documents ?? []
+    out.push(...docs)
+    if (docs.length < limit) break
+    cursor = docs[docs.length - 1].$id
+  }
+  return out.slice(0, hardCap)
+}
+
 // ---------- Collection IDs (env-aware) ----------
 const getRoutesCollectionId = () =>
   process.env.EXPO_PUBLIC_APPWRITE_ROUTES_COLLECTION_ID || "routes"
@@ -105,13 +131,13 @@ export async function searchBusByNumber(busNumber: string): Promise<BusInfo[]> {
 
     const clean = busNumber.trim()
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("busNumber", clean),
       Query.orderDesc("timestamp"),
     ])
 
     const results: BusInfo[] = []
-    for (const doc of response.documents) {
+    for (const doc of docs) {
       const conductorName = await getSafeConductorName(doc)
       results.push({
         id: doc.$id,
@@ -151,12 +177,12 @@ export async function getBusPassengers(busId: string, _conductorId: string): Pro
     // 1) Try by busNumber (with candidate variants), newest first
     for (const cand of candidates) {
       try {
-        const resp = await databases.listDocuments(databaseId, tripsCol, [
+        const rows = await listAllDocuments(databaseId, tripsCol, [
           Query.equal("busNumber", cand),
           Query.orderDesc("timestamp"),
         ])
-        if (resp.documents.length > 0) {
-          return resp.documents.map((doc: any) => ({
+        if (rows.length > 0) {
+          return rows.map((doc: any) => ({
             id: doc.$id,
             name: doc.passengerName || "Unknown Passenger",
             fare: doc.totalFare || doc.fare || "₱0.00",
@@ -168,20 +194,20 @@ export async function getBusPassengers(busId: string, _conductorId: string): Pro
             passengerPhoto: doc.passengerPhoto || "",
           }))
         }
-      } catch (e) {
+      } catch {
         // continue to next candidate
       }
     }
 
     // 2) Fallback: use route (from/to). Prefer rows whose busNumber matches any candidate.
     try {
-      const routeResp = await databases.listDocuments(databaseId, tripsCol, [
+      const routeRows = await listAllDocuments(databaseId, tripsCol, [
         Query.equal("from", bus.from),
         Query.equal("to", bus.to),
         Query.orderDesc("timestamp"),
       ])
 
-      const rows = routeResp.documents.filter((doc: any) => {
+      const rows = routeRows.filter((doc: any) => {
         const bn = String(doc.busNumber ?? "").trim()
         if (!bn) return false // keep it strict to avoid mixing other buses
         return candidates.includes(bn)
@@ -200,7 +226,7 @@ export async function getBusPassengers(busId: string, _conductorId: string): Pro
           passengerPhoto: doc.passengerPhoto || "",
         }))
       }
-    } catch (e) {
+    } catch {
       // swallow fallback errors
     }
 
@@ -301,13 +327,13 @@ export async function getInspectionHistory(inspectorId: string): Promise<Inspect
 
     if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing")
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("inspectorId", inspectorId),
       Query.orderDesc("timestamp"),
     ])
 
     const results: InspectionRecord[] = []
-    for (const doc of response.documents) {
+    for (const doc of docs) {
       const conductorName = await getSafeConductorName(doc)
       results.push({
         id: doc.$id,
@@ -341,16 +367,15 @@ export async function getInspectorStats(inspectorId: string): Promise<{
 
     if (!databaseId || !collectionId) throw new Error("Appwrite configuration missing")
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("inspectorId", inspectorId),
       Query.orderDesc("timestamp"),
     ])
 
-    const inspections = response.documents
-    const totalInspections = inspections.length.toString()
-    const totalBusesCleared = inspections.filter((d: any) => d.status === "cleared").length.toString()
+    const totalInspections = docs.length.toString()
+    const totalBusesCleared = docs.filter((d: any) => d.status === "cleared").length.toString()
 
-    const lastTs = inspections.length > 0 ? inspections[0].timestamp : Date.now().toString()
+    const lastTs = docs.length > 0 ? docs[0].timestamp : Date.now().toString()
     const lastActive = new Date(safeParseTimestamp(lastTs)).toLocaleDateString()
 
     return { totalInspections, totalBusesCleared, lastActive }

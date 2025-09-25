@@ -14,6 +14,32 @@ export interface RouteInfo {
   busType?: string; // ✅ NEW: add busType to the model
 }
 
+// ---- pagination helpers ----
+const PAGE_LIMIT = 100;
+const HARD_CAP = 1000;
+
+async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: any[] = [],
+  pageLimit = PAGE_LIMIT,
+  hardCap = HARD_CAP
+): Promise<any[]> {
+  const out: any[] = [];
+  let cursor: string | null = null;
+  const limit = Math.max(1, Math.min(100, pageLimit));
+  while (out.length < hardCap) {
+    const q = [...baseQueries, Query.limit(limit)];
+    if (cursor) q.push(Query.cursorAfter(cursor));
+    const res = await databases.listDocuments(databaseId, collectionId, q);
+    const docs = res?.documents ?? [];
+    out.push(...docs);
+    if (docs.length < limit) break;
+    cursor = docs[docs.length - 1].$id;
+  }
+  return out.slice(0, hardCap);
+}
+
 // Get the collection ID for routes
 const getRoutesCollectionId = () => {
   return process.env.EXPO_PUBLIC_APPWRITE_ROUTES_COLLECTION_ID || "";
@@ -118,7 +144,7 @@ export async function endRoute(routeId: string): Promise<boolean> {
   }
 }
 
-// Get all routes for a conductor
+// Get all routes for a conductor (paginated)
 export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
   try {
     const databaseId = config.databaseId;
@@ -128,12 +154,12 @@ export async function getAllRoutes(conductorId: string): Promise<RouteInfo[]> {
       throw new Error("Appwrite configuration missing");
     }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((route: any) => ({
+    return docs.map((route: any) => ({
       id: route.$id,
       from: route.from,
       to: route.to,

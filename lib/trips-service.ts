@@ -34,6 +34,59 @@ const getTripsCollectionId = (): string =>
 const getDatabaseId = (): string =>
   (config.databaseId as string | undefined) ?? "";
 
+/** ---------- Pagination helpers (to lift the 25-doc default) ---------- */
+const PAGE_SIZE = 100;
+const ENV_MAX_DOCS = Number.parseInt(
+  process.env.EXPO_PUBLIC_FETCH_MAX_DOCS ?? "0",
+  10
+);
+const GLOBAL_MAX_DOCS: number | undefined =
+  Number.isFinite(ENV_MAX_DOCS) && ENV_MAX_DOCS > 0 ? ENV_MAX_DOCS : undefined;
+
+/**
+ * Fetch all documents for a given query by paging with cursorAfter.
+ * Ensure you pass a stable order in baseQueries, e.g., orderDesc("timestamp").
+ */
+async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: string[],
+  opts?: { pageSize?: number; maxDocs?: number }
+): Promise<any[]> {
+  const limit = Math.min(Math.max(opts?.pageSize ?? PAGE_SIZE, 1), 100);
+  const maxDocs = opts?.maxDocs ?? GLOBAL_MAX_DOCS;
+
+  const all: any[] = [];
+  let cursor: string | null = null;
+
+  while (true) {
+    const queries = [...baseQueries, Query.limit(limit)];
+    if (cursor) queries.push(Query.cursorAfter(cursor));
+
+    const res = await databases.listDocuments(
+      databaseId,
+      collectionId,
+      queries
+    );
+    const docs = res.documents ?? [];
+    all.push(...docs);
+
+    if (maxDocs && all.length >= maxDocs) {
+      all.length = maxDocs;
+      break;
+    }
+
+    if (docs.length < limit) break;
+    cursor = docs[docs.length - 1].$id;
+
+    // Be gentle to API
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return all;
+}
+/** -------------------------------------------------------------------- */
+
 export function generateTripId(): string {
   return Math.floor(1000000000 + Math.random() * 9000000000).toString();
 }
@@ -103,13 +156,12 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
       );
     }
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc: any) => {
-      // Prefer totalPassengers; fall back to passengerCount; if both missing/empty, use "1"
+    return docs.map((doc: any) => {
       const tpRaw = (doc.totalPassengers ?? doc.passengerCount) as
         | string
         | undefined;
@@ -122,7 +174,6 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
         fare: doc.fare ?? "₱0.00",
         totalFare: doc.totalFare ?? doc.fare,
         farePerPassenger: doc.farePerPassenger,
-        // keep both fields populated
         totalPassengers,
         passengerCount: totalPassengers,
         from: doc.from ?? "Unknown",
@@ -136,7 +187,7 @@ export async function getTripHistory(conductorId: string): Promise<Trip[]> {
         kilometer: doc.kilometer,
         totalTrips: doc.totalTrips,
         busNumber: doc.busNumber,
-        busType: doc.busType ?? "Regular", // ✅ pass through
+        busType: doc.busType ?? "Regular",
       } as Trip;
     });
   } catch (error) {
@@ -172,7 +223,6 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
       fare: document.fare ?? "₱0.00",
       totalFare: document.totalFare ?? document.fare,
       farePerPassenger: document.farePerPassenger,
-      // keep both fields populated
       totalPassengers,
       passengerCount: totalPassengers,
       from: document.from ?? "Unknown",
@@ -186,7 +236,7 @@ export async function getTripDetails(tripId: string): Promise<Trip | null> {
       kilometer: document.kilometer,
       totalTrips: document.totalTrips,
       busNumber: document.busNumber,
-      busType: document.busType ?? "Regular", // ✅ pass through
+      busType: document.busType ?? "Regular",
     } as Trip;
   } catch (error) {
     console.error("Error getting trip details:", error);
@@ -204,7 +254,6 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
       );
     }
 
-    // Use provided timestamp when meaningful; otherwise current time
     const ts =
       Number.isFinite(trip.timestamp) && trip.timestamp > 0
         ? trip.timestamp
@@ -216,16 +265,13 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
 
     const tripData: Record<string, any> = {
       passengerName: trip.passengerName ?? "Unknown Passenger",
-      // keep total in legacy field "fare" for backward compatibility
       fare: trip.fare ?? trip.totalFare ?? "₱0.00",
       totalFare: trip.totalFare ?? trip.fare ?? "₱0.00",
       farePerPassenger: trip.farePerPassenger ?? "",
-      // persist both fields; totalPassengers is the source of truth
       totalPassengers,
       passengerCount: totalPassengers,
       from: trip.from ?? "Unknown",
       to: trip.to ?? "Unknown",
-      // store as string to match existing schema
       timestamp: ts.toString(),
       paymentMethod: trip.paymentMethod ?? "QR",
       transactionId: trip.transactionId ?? "0000000000",
@@ -235,10 +281,9 @@ export async function saveTrip(trip: Omit<Trip, "id">): Promise<string | null> {
       kilometer: trip.kilometer ?? "0",
       totalTrips: "1",
       busNumber: trip.busNumber ?? "",
-      busType: trip.busType ?? "Regular", // ✅ save it
+      busType: trip.busType ?? "Regular",
     };
 
-    // Create robustly, stripping unknown fields if schema lags (but we re-send busType next time)
     const newId = await createDocumentWithSchemaFallback(
       databaseId,
       collectionId,
@@ -268,14 +313,14 @@ export async function getTripsByDateRange(
     const startTimestamp = startDate.getTime().toString();
     const endTimestamp = endDate.setHours(23, 59, 59, 999).toString();
 
-    const response = await databases.listDocuments(databaseId, collectionId, [
+    const docs = await listAllDocuments(databaseId, collectionId, [
       Query.equal("conductorId", conductorId),
       Query.greaterThanEqual("timestamp", startTimestamp),
       Query.lessThanEqual("timestamp", endTimestamp),
       Query.orderDesc("timestamp"),
     ]);
 
-    return response.documents.map((doc: any) => {
+    return docs.map((doc: any) => {
       const tpRaw = (doc.totalPassengers ?? doc.passengerCount) as
         | string
         | undefined;
@@ -301,7 +346,7 @@ export async function getTripsByDateRange(
         kilometer: doc.kilometer,
         totalTrips: doc.totalTrips,
         busNumber: doc.busNumber,
-        busType: doc.busType ?? "Regular", // ✅ pass through
+        busType: doc.busType ?? "Regular",
       } as Trip;
     });
   } catch (error) {

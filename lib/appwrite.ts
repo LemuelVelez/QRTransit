@@ -30,6 +30,40 @@ export const account = new Account(client);
 export const databases = new Databases(client);
 export const storage = new Storage(client);
 
+/** ------------------------------
+ *  Pagination helper (safe defaults)
+ *  - batchSize: 1..100 (default 100)
+ *  - maxDocs: stop after N docs (default 1000) to avoid hammering API
+ *  -------------------------------- */
+export interface ListAllOptions {
+  batchSize?: number; // per-page size (Appwrite max 100)
+  maxDocs?: number;   // hard cap to protect API
+}
+export async function listAllDocuments(
+  databaseId: string,
+  collectionId: string,
+  baseQueries: string[] = [],
+  options: ListAllOptions = {}
+): Promise<any[]> {
+  const batchSize = Math.min(Math.max(options.batchSize ?? 100, 1), 100);
+  const maxDocs = Math.max(options.maxDocs ?? 1000, 1);
+
+  const out: any[] = [];
+  let offset = 0;
+
+  while (out.length < maxDocs) {
+    const pageQueries = [...baseQueries, Query.limit(batchSize), Query.offset(offset)];
+    const res = await databases.listDocuments(databaseId, collectionId, pageQueries);
+    const docs = res?.documents ?? [];
+    out.push(...docs);
+
+    if (docs.length < batchSize) break; // last page
+    offset += batchSize;
+  }
+
+  return out.slice(0, maxDocs);
+}
+
 // ---- Safe error normalization helper ----
 const toErrorInfo = (
   err: unknown
@@ -57,6 +91,8 @@ const toErrorInfo = (
   }
   return { message: "Unknown error", raw: err };
 };
+
+export { toErrorInfo };
 
 /**
  * Registration flow per your requirement:
@@ -385,105 +421,6 @@ export async function getCurrentUser() {
     return null;
   } catch (_err) {
     return null;
-  }
-}
-
-/**
- * Update user profile information
- */
-export async function updateUserProfile(
-  userData: {
-    firstname?: string;
-    lastname?: string;
-    username?: string;
-    email?: string;
-    phonenumber?: string;
-  },
-  avatarFile?: {
-    name: string;
-    type: string;
-    size: number;
-    uri: string;
-  }
-) {
-  try {
-    const currentUser = await getCurrentUser();
-    if (!currentUser || !currentUser.$id) {
-      throw new Error("No authenticated user found");
-    }
-
-    const users = await databases.listDocuments(
-      config.databaseId!,
-      config.usersCollectionId!,
-      [Query.equal("userId", currentUser.$id)]
-    );
-
-    if (users.documents.length === 0) {
-      throw new Error("User document not found");
-    }
-
-    const updateData: Record<string, any> = {};
-    if (userData.firstname) updateData.firstname = userData.firstname;
-    if (userData.lastname) updateData.lastname = userData.lastname;
-    if (userData.username) updateData.username = userData.username;
-    if (userData.email) updateData.email = userData.email;
-    if (userData.phonenumber) updateData.phonenumber = userData.phonenumber;
-
-    let avatarUrl = currentUser.avatar;
-
-    if (avatarFile) {
-      try {
-        const bucketId = config.avatarBucketId;
-        if (!bucketId) {
-          throw new Error("Missing bucket ID configuration");
-        }
-
-        if (currentUser.avatar) {
-          try {
-            const fileIdMatch = (currentUser.avatar as string).match(
-              /files\/([^/]+)\/view/
-            );
-            if (fileIdMatch && fileIdMatch[1]) {
-              const oldFileId = fileIdMatch[1];
-              await storage.deleteFile(bucketId, oldFileId);
-            }
-          } catch (deleteError) {
-            console.error("Failed to delete old avatar:", deleteError);
-          }
-        }
-
-        const fileId = ID.unique();
-        const uploadResult = await storage.createFile(
-          bucketId,
-          fileId,
-          avatarFile
-        );
-        const fileUrl = storage.getFileView(bucketId, uploadResult.$id);
-
-        updateData.avatar = fileUrl.href;
-        avatarUrl = fileUrl.href;
-      } catch (uploadError) {
-        console.error("Avatar upload error:", uploadError);
-      }
-    }
-
-    const userDoc = users.documents[0];
-    await databases.updateDocument(
-      config.databaseId!,
-      config.usersCollectionId!,
-      userDoc.$id,
-      updateData
-    );
-
-    if (userData.firstname && userData.lastname) {
-      await account.updateName(`${userData.firstname} ${userData.lastname}`);
-    }
-
-    return { ...currentUser, ...userData, avatar: avatarUrl };
-  } catch (err) {
-    const { message } = toErrorInfo(err);
-    console.error("Profile update error:", err);
-    throw new Error(message);
   }
 }
 
