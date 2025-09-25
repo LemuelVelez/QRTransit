@@ -85,6 +85,35 @@ export default function ConductorScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const router = useRouter()
 
+  // ---------- NEW: Always ensure we have the live auth user as conductor ----------
+  const getEffectiveConductor = useCallback(async (): Promise<{ id: string; name: string }> => {
+    // If state already has it, use it
+    if (conductorId) {
+      return { id: conductorId, name: conductorName || "Conductor" }
+    }
+    // Otherwise fetch the current user now
+    try {
+      const user = await getCurrentUser()
+      if (user?.$id) {
+        const id = user.$id
+        // Derive best-available display name
+        const name =
+          (user.firstname && user.lastname)
+            ? `${user.firstname} ${user.lastname}`
+            : user.username || user.email || "Conductor"
+
+        // Sync state so subsequent use is immediate
+        setConductorId(id)
+        setConductorName(name)
+        return { id, name }
+      }
+    } catch {
+      // ignore and fall through
+    }
+    return { id: "", name: "Conductor" }
+  }, [conductorId, conductorName])
+  // ------------------------------------------------------------------------------
+
   // Enhanced fare calculation using the fare service
   useEffect(() => {
     const calculateDistanceAndFare = async () => {
@@ -215,7 +244,7 @@ export default function ConductorScreen() {
     }
   }, [])
 
-  // Realtime listener: begin charging when we SEE "approved"; stop processing only when completed/declined/expired.
+  // Realtime listener
   useEffect(() => {
     if (!conductorId) return
     if (subscriptionRef.current) {
@@ -230,7 +259,7 @@ export default function ConductorScreen() {
 
       if (request.status === "approved" && currentRequestIdRef.current === request.id && !chargedRef.current) {
         chargedRef.current = true
-        setIsProcessingPayment(true) // keep spinner on
+        setIsProcessingPayment(true)
         handleProcessPayment(request)
       } else if (request.status === "declined") {
         setIsProcessingPayment(false)
@@ -253,7 +282,7 @@ export default function ConductorScreen() {
     return () => unsubscribe()
   }, [conductorId])
 
-  // Polling as a safety net: detects approved/declined/expired if realtime misses.
+  // Polling as a safety net
   useEffect(() => {
     if (pollRef.current) clearInterval(pollRef.current)
 
@@ -354,36 +383,41 @@ export default function ConductorScreen() {
   }
 
   const handleConfirmPayment = async () => {
-    if (!passengerData || totalFareNumber <= 0 || !conductorId) return
+    if (!passengerData || totalFareNumber <= 0) return
 
     try {
+      // ✅ Ensure we are using the *current* auth user for conductorId/name
+      const { id: authConductorId, name: authConductorName } = await getEffectiveConductor()
+      if (!authConductorId) {
+        Alert.alert("Error", "No authenticated conductor found.")
+        return
+      }
+
       if (paymentMethod === "QR") {
-        // Start processing immediately and keep it on until completed/declined/expired.
         setIsProcessingPayment(true)
 
         const request = await createPaymentRequest(
-          conductorId,
-          conductorName,
+          authConductorId,
+          authConductorName,
           passengerData.userId,
           passengerData.name,
           totalFareString,
           from || "Unknown",
           to || "Unknown",
           routeInfo?.busNumber,
-          busType,                      // include Bus Type on request doc
+          busType,
           String(ticketCount),
           fare,
-          /** ✅ pass along the selected passengerType so QR flow carries it */
+          /** carry passengerType */
           passengerType
         )
 
         setCurrentPaymentRequest(request)
         currentRequestIdRef.current = request.id
         chargedRef.current = false
-
         // spinner stays until final state
       } else {
-        // CASH flow — save trip with busType so it appears everywhere
+        // CASH flow — save trip with assured conductorId
         const tripId = generateTripId()
         const trip = {
           passengerName: passengerData.name,
@@ -397,12 +431,12 @@ export default function ConductorScreen() {
           timestamp: Date.now(),
           paymentMethod: "Cash",
           transactionId: tripId,
-          conductorId: conductorId,
+          conductorId: authConductorId,           // ✅ ensured auth user
           passengerPhoto: capturedImage || undefined,
           passengerType: passengerType,
           kilometer: kilometer,
           busNumber: routeInfo?.busNumber,
-          busType: busType,            // persist Bus Type on cash trips
+          busType: busType,
         }
         const savedTripId = await saveTrip(trip)
         setShowPaymentConfirmation(false)
@@ -422,7 +456,7 @@ export default function ConductorScreen() {
             passengerType: passengerType,
             paymentMethod: "Cash",
             busNumber: routeInfo?.busNumber,
-            busType: busType,          // pass through to receipt
+            busType: busType,
           },
         })
       }
@@ -439,6 +473,14 @@ export default function ConductorScreen() {
     if (request.status === "completed") return
 
     try {
+      // ✅ Ensure we have the *current* auth conductor ID at the moment of saving the trip
+      const { id: authConductorId } = await getEffectiveConductor()
+      if (!authConductorId) {
+        setIsProcessingPayment(false)
+        Alert.alert("Error", "No authenticated conductor found.")
+        return
+      }
+
       const amountToCharge = parseCurrencyToNumber(request.totalFare || request.fare)
 
       const result = await processPayment(
@@ -462,12 +504,11 @@ export default function ConductorScreen() {
           timestamp: Date.now(),
           paymentMethod: "QR",
           transactionId: tripId,
-          conductorId: conductorId,
-          /** ✅ persist the correct passenger type from the QR request */
+          conductorId: authConductorId,                   // ✅ ensured auth user
           passengerType: request.passengerType || passengerType,
           kilometer: kilometer,
           busNumber: request.busNumber || routeInfo?.busNumber,
-          busType: request.busType || busType,  // persist Bus Type on QR trips
+          busType: request.busType || busType,
         }
         const savedTripId = await saveTrip(trip)
 
@@ -495,11 +536,10 @@ export default function ConductorScreen() {
             from: request.from,
             to: request.to,
             timestamp: new Date().toLocaleString(),
-            /** ✅ pass the same value to the Receipt screen */
             passengerType: request.passengerType || passengerType,
             paymentMethod: "QR",
             busNumber: request.busNumber || routeInfo?.busNumber,
-            busType: request.busType || busType, // pass through to receipt
+            busType: request.busType || busType,
           },
         })
       } else {
@@ -513,7 +553,7 @@ export default function ConductorScreen() {
     } catch (error) {
       setIsProcessingPayment(false)
       setCurrentPaymentRequest(null)
-      if (currentRequestIdRef.current === request.id) currentRequestIdRef.current = null
+      if (currentRequestIdRef.current) currentRequestIdRef.current = null
       chargedRef.current = false
       console.error("Payment error:", error)
       Alert.alert("Payment Error", "An unexpected error occurred while processing payment")
