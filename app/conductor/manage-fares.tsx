@@ -29,6 +29,9 @@ function VSpace({ size = 12 }: { size?: number }) {
   return <View style={{ height: size }} />
 }
 
+const BUS_TYPES = ["Deluxe", "Regular", "Air-Conditioned", "Others (specify)"] as const
+type BusTypeOption = typeof BUS_TYPES[number]
+
 export default function ManageFaresScreen() {
   const [loading, setLoading] = useState(true)
   const [allConfigs, setAllConfigs] = useState<FareConfig[]>([])
@@ -39,7 +42,13 @@ export default function ManageFaresScreen() {
   const [showAddFare, setShowAddFare] = useState(false)
   const [newFareAmount, setNewFareAmount] = useState("")
   const [newKilometer, setNewKilometer] = useState("")
+  const [newBusType, setNewBusType] = useState<BusTypeOption>("Regular")
+  const [newBusTypeCustom, setNewBusTypeCustom] = useState("")
+  const [showBusTypeListAdd, setShowBusTypeListAdd] = useState(false)
+
   const [editingFare, setEditingFare] = useState<FareConfig | null>(null)
+  const [showBusTypeListEdit, setShowBusTypeListEdit] = useState(false)
+  const [editingBusTypeCustom, setEditingBusTypeCustom] = useState("")
 
   const router = useRouter()
 
@@ -87,6 +96,11 @@ export default function ManageFaresScreen() {
 
   const toggleFareActive = async (cfg: FareConfig) => {
     if (!cfg.id) return
+    // 🔒 Only the creator can toggle active state
+    if (cfg.conductorId && cfg.conductorId !== conductorId) {
+      Alert.alert("Locked", "Only the creator of this fare can change its status.")
+      return
+    }
     try {
       setLoading(true)
       const ok = await updateFareConfiguration(cfg.id, { active: !cfg.active })
@@ -105,6 +119,12 @@ export default function ManageFaresScreen() {
 
   const saveFareEdit = async () => {
     if (!editingFare || !editingFare.id) return
+    // 🔒 Only the creator can edit
+    if (editingFare.conductorId && editingFare.conductorId !== conductorId) {
+      Alert.alert("Locked", "Only the creator of this fare can edit it.")
+      return
+    }
+
     const fareAmount = Number(editingFare.fare)
     const km = Number(editingFare.kilometer)
     if (isNaN(fareAmount) || fareAmount <= 0) {
@@ -115,6 +135,18 @@ export default function ManageFaresScreen() {
       Alert.alert("Invalid Input", "Kilometer must be greater than 0")
       return
     }
+
+    // busType handling for edit
+    let finalBusType: string = editingFare.busType || "Regular"
+    if (finalBusType === "Others (specify)") {
+      const custom = editingBusTypeCustom.trim()
+      if (!custom) {
+        Alert.alert("Invalid Input", "Please specify a bus type for 'Others'.")
+        return
+      }
+      finalBusType = custom
+    }
+
     try {
       setLoading(true)
       const ok = await updateFareConfiguration(editingFare.id, {
@@ -122,10 +154,17 @@ export default function ManageFaresScreen() {
         kilometer: String(km),
         description: editingFare.description,
         active: editingFare.active,
+        busType: finalBusType,
       })
       if (ok) {
-        setAllConfigs(allConfigs.map((d) => (d.id === editingFare.id ? { ...editingFare } : d)))
+        setAllConfigs(
+          allConfigs.map((d) =>
+            d.id === editingFare.id ? { ...editingFare, busType: finalBusType } : d
+          )
+        )
         setEditingFare(null)
+        setEditingBusTypeCustom("")
+        setShowBusTypeListEdit(false)
       } else {
         Alert.alert("Error", "Failed to save")
       }
@@ -152,21 +191,37 @@ export default function ManageFaresScreen() {
       Alert.alert("Invalid Input", "A fare configuration for this distance already exists")
       return
     }
+
+    let finalBusType = newBusType as string
+    if (newBusType === "Others (specify)") {
+      const custom = newBusTypeCustom.trim()
+      if (!custom) {
+        Alert.alert("Invalid Input", "Please specify a bus type for 'Others'.")
+        return
+      }
+      finalBusType = custom
+    }
+
     try {
       setLoading(true)
+      // ✅ Pass the current conductorId so it is persisted with the fare
       const id = await saveFareConfiguration({
         fare: String(fareAmount),
         kilometer: String(km),
         description: "",
         active: true,
+        busType: finalBusType || "Regular",
+        conductorId: conductorId || "",
       })
       if (id) {
-        const newConfig = {
+        const newConfig: FareConfig = {
           id,
           fare: String(fareAmount),
           kilometer: String(km),
           description: "",
           active: true,
+          busType: finalBusType || "Regular",
+          conductorId: conductorId || "",
         }
         setAllConfigs(
           [...allConfigs, newConfig].sort(
@@ -175,6 +230,9 @@ export default function ManageFaresScreen() {
         )
         setNewFareAmount("")
         setNewKilometer("")
+        setNewBusType("Regular")
+        setNewBusTypeCustom("")
+        setShowBusTypeListAdd(false)
         setShowAddFare(false)
       } else {
         Alert.alert("Error", "Failed to add")
@@ -189,6 +247,11 @@ export default function ManageFaresScreen() {
 
   const deleteFare = (cfg: FareConfig) => {
     if (!cfg.id) return
+    // 🔒 Only the creator can delete
+    if (cfg.conductorId && cfg.conductorId !== conductorId) {
+      Alert.alert("Locked", "Only the creator of this fare can delete it.")
+      return
+    }
     Alert.alert("Delete Fare Configuration", `Delete fare for ${cfg.kilometer} km (₱${cfg.fare})?`, [
       { text: "Cancel", style: "cancel" },
       {
@@ -209,6 +272,11 @@ export default function ManageFaresScreen() {
         },
       },
     ])
+  }
+
+  const canModify = (cfg: FareConfig): boolean => {
+    // If row has an owner, only owner can modify; if no owner (legacy data), allow modify.
+    return !cfg.conductorId || cfg.conductorId === conductorId
   }
 
   if (loading) {
@@ -306,6 +374,56 @@ export default function ManageFaresScreen() {
 
                 <VSpace size={12} />
 
+                {/* Bus Type Select - Add */}
+                <Text className="mb-1 font-medium text-gray-700">Bus Type</Text>
+                <TouchableOpacity
+                  className="flex-row items-center justify-between w-full p-3 bg-white border border-gray-300 rounded-md"
+                  onPress={() => setShowBusTypeListAdd((s) => !s)}
+                >
+                  <Text className="text-gray-800">
+                    {newBusType === "Others (specify)" && newBusTypeCustom.trim()
+                      ? newBusTypeCustom.trim()
+                      : newBusType}
+                  </Text>
+                  <Ionicons
+                    name={showBusTypeListAdd ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color="#6b7280"
+                  />
+                </TouchableOpacity>
+
+                {showBusTypeListAdd && (
+                  <View className="mt-2 bg-white border border-gray-200 rounded-md">
+                    {BUS_TYPES.map((opt) => (
+                      <TouchableOpacity
+                        key={opt}
+                        className="px-3 py-3 border-b border-gray-100"
+                        onPress={() => {
+                          setNewBusType(opt)
+                          setShowBusTypeListAdd(false)
+                          if (opt !== "Others (specify)") setNewBusTypeCustom("")
+                        }}
+                      >
+                        <Text className="text-gray-800">{opt}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {newBusType === "Others (specify)" && (
+                  <>
+                    <VSpace size={10} />
+                    <TextInput
+                      className="p-3 bg-white border border-gray-300 rounded-md"
+                      value={newBusTypeCustom}
+                      onChangeText={setNewBusTypeCustom}
+                      placeholder="Please specify bus type"
+                    />
+                  </>
+                )}
+
+                <VSpace size={12} />
+
                 <TouchableOpacity
                   className="items-center justify-center w-full py-4 rounded-lg bg-emerald-500"
                   onPress={addFare}
@@ -317,7 +435,12 @@ export default function ManageFaresScreen() {
 
                 <TouchableOpacity
                   className="items-center justify-center w-full py-4 bg-gray-200 rounded-lg"
-                  onPress={() => setShowAddFare(false)}
+                  onPress={() => {
+                    setShowAddFare(false)
+                    setShowBusTypeListAdd(false)
+                    setNewBusType("Regular")
+                    setNewBusTypeCustom("")
+                  }}
                 >
                   <Text className="font-medium text-gray-800">Cancel</Text>
                 </TouchableOpacity>
@@ -333,108 +456,219 @@ export default function ManageFaresScreen() {
           ) : (
             <>
               <VSpace size={12} />
-              {allConfigs.map((fareConfig, idx) => (
-                <View
-                  key={fareConfig.id || fareConfig.kilometer}
-                  className="p-3 border border-gray-200 rounded-md"
-                  style={{ marginBottom: idx === allConfigs.length - 1 ? 0 : 12 }}
-                >
-                  {editingFare && editingFare.id === fareConfig.id ? (
-                    <>
-                      <Text className="mb-1 font-medium text-gray-700">Distance (Kilometers)</Text>
-                      <TextInput
-                        className="p-3 border border-gray-300 rounded-md bg-gray-50"
-                        value={editingFare.kilometer}
-                        onChangeText={(text) =>
-                          setEditingFare({ ...editingFare, kilometer: text })
+              {allConfigs.map((fareConfig, idx) => {
+                const owned = canModify(fareConfig)
+                return (
+                  <View
+                    key={fareConfig.id || `${fareConfig.kilometer}-${idx}`}
+                    className="p-3 border border-gray-200 rounded-md"
+                    style={{ marginBottom: idx === allConfigs.length - 1 ? 0 : 12 }}
+                  >
+                    {/* Status row with lock indicator */}
+                    <View className="flex-row items-center">
+                      <Switch
+                        value={fareConfig.active}
+                        // ✅ FIX: conform to (value:boolean)=>void | Promise<void>
+                        onValueChange={async (value) => {
+                          // when disabled, RN won't call this, but keep guard
+                          if (!owned) return
+                          // avoid double toggle if state already equals value
+                          if (value === fareConfig.active) return
+                          await toggleFareActive(fareConfig)
+                        }}
+                        disabled={!owned}
+                        trackColor={{ false: "#d1d5db", true: "#10b981" }}
+                        thumbColor="#ffffff"
+                      />
+                      <Text className="ml-2 text-gray-600">
+                        {fareConfig.active ? "Active" : "Inactive"}
+                      </Text>
+                      {!owned && (
+                        <View className="flex-row items-center ml-2">
+                          <Ionicons name="lock-closed-outline" size={14} color="#9ca3af" />
+                          <Text className="ml-1 text-xs text-gray-400">Owned by another</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <VSpace size={8} />
+
+                    <View className="self-start px-3 py-1 rounded-full bg-emerald-100">
+                      <Text className="text-xs text-emerald-600">Distance-Based</Text>
+                    </View>
+
+                    <VSpace size={12} />
+
+                    <Text className="text-lg font-bold text-gray-800">
+                      {fareConfig.kilometer} km → ₱{fareConfig.fare}
+                    </Text>
+                    <Text className="text-gray-600">
+                      Base fare for trips up to {fareConfig.kilometer} kilometers
+                    </Text>
+
+                    <VSpace size={8} />
+                    <Text className="text-gray-700">
+                      Bus Type: <Text className="font-semibold">{fareConfig.busType || "Regular"}</Text>
+                    </Text>
+
+                    {/* Actions: Edit/Delete locked if not owner */}
+                    <VSpace size={14} />
+
+                    <TouchableOpacity
+                      className="flex-row items-center justify-center w-full py-4 border rounded-lg border-emerald-500"
+                      onPress={() => {
+                        if (!owned) {
+                          Alert.alert("Locked", "Only the creator of this fare can edit it.")
+                          return
                         }
-                        placeholder="Distance in km"
-                        keyboardType="numeric"
-                      />
-
-                      <VSpace size={12} />
-
-                      <Text className="mb-1 font-medium text-gray-700">Fare Amount (₱)</Text>
-                      <TextInput
-                        className="p-3 border border-gray-300 rounded-md bg-gray-50"
-                        value={String(editingFare.fare ?? "")}
-                        onChangeText={(text) => setEditingFare({ ...editingFare, fare: text })}
-                        placeholder="Fare amount"
-                        keyboardType="numeric"
-                      />
-
-                      <VSpace size={14} />
-
-                      <TouchableOpacity
-                        className="items-center justify-center w-full py-4 rounded-lg bg-emerald-500"
-                        onPress={saveFareEdit}
+                        setEditingFare({
+                          ...fareConfig,
+                          busType: fareConfig.busType || "Regular",
+                        })
+                        setEditingBusTypeCustom("")
+                        setShowBusTypeListEdit(false)
+                      }}
+                      disabled={!owned}
+                      style={{ opacity: owned ? 1 : 0.5 }}
+                    >
+                      <Ionicons name="create-outline" size={18} color={owned ? "#059669" : "#9ca3af"} />
+                      <Text
+                        className="ml-2 font-medium"
+                        style={{ color: owned ? "#059669" : "#9ca3af" }}
                       >
-                        <Text className="font-semibold text-white">Save</Text>
-                      </TouchableOpacity>
+                        Edit
+                      </Text>
+                    </TouchableOpacity>
 
-                      <VSpace size={12} />
+                    <VSpace size={12} />
 
-                      <TouchableOpacity
-                        className="items-center justify-center w-full py-4 bg-gray-200 rounded-lg"
-                        onPress={() => setEditingFare(null)}
+                    <TouchableOpacity
+                      className="flex-row items-center justify-center w-full py-4 border border-red-500 rounded-lg"
+                      onPress={() => {
+                        if (!owned) {
+                          Alert.alert("Locked", "Only the creator of this fare can delete it.")
+                          return
+                        }
+                        deleteFare(fareConfig)
+                      }}
+                      disabled={!owned}
+                      style={{ opacity: owned ? 1 : 0.5 }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={owned ? "#ef4444" : "#9ca3af"} />
+                      <Text
+                        className="ml-2 font-medium"
+                        style={{ color: owned ? "#ef4444" : "#9ca3af" }}
                       >
-                        <Text className="font-medium text-gray-800">Cancel</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <>
-                      {/* Status */}
-                      <View className="flex-row items-center">
-                        <Switch
-                          value={fareConfig.active}
-                          onValueChange={() => toggleFareActive(fareConfig)}
-                          trackColor={{ false: "#d1d5db", true: "#10b981" }}
-                          thumbColor="#ffffff"
+                        Delete
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* Inline editor (unchanged logic, still guarded before save) */}
+                    {editingFare && editingFare.id === fareConfig.id && (
+                      <>
+                        <VSpace size={12} />
+                        <Text className="mb-1 font-medium text-gray-700">Distance (Kilometers)</Text>
+                        <TextInput
+                          className="p-3 border border-gray-300 rounded-md bg-gray-50"
+                          value={editingFare.kilometer}
+                          onChangeText={(text) =>
+                            setEditingFare({ ...editingFare, kilometer: text })
+                          }
+                          placeholder="Distance in km"
+                          keyboardType="numeric"
                         />
-                        <Text className="ml-2 text-gray-600">
-                          {fareConfig.active ? "Active" : "Inactive"}
-                        </Text>
-                      </View>
 
-                      <VSpace size={8} />
+                        <VSpace size={12} />
 
-                      <View className="self-start px-3 py-1 rounded-full bg-emerald-100">
-                        <Text className="text-xs text-emerald-600">Distance-Based</Text>
-                      </View>
+                        <Text className="mb-1 font-medium text-gray-700">Fare Amount (₱)</Text>
+                        <TextInput
+                          className="p-3 border border-gray-300 rounded-md bg-gray-50"
+                          value={String(editingFare.fare ?? "")}
+                          onChangeText={(text) => setEditingFare({ ...editingFare, fare: text })}
+                          placeholder="Fare amount"
+                          keyboardType="numeric"
+                        />
 
-                      <VSpace size={12} />
+                        <VSpace size={12} />
 
-                      <Text className="text-lg font-bold text-gray-800">
-                        {fareConfig.kilometer} km → ₱{fareConfig.fare}
-                      </Text>
-                      <Text className="text-gray-600">
-                        Base fare for trips up to {fareConfig.kilometer} kilometers
-                      </Text>
+                        {/* Bus Type Select - Edit */}
+                        <Text className="mb-1 font-medium text-gray-700">Bus Type</Text>
+                        <TouchableOpacity
+                          className="flex-row items-center justify-between w-full p-3 bg-white border border-gray-300 rounded-md"
+                          onPress={() => setShowBusTypeListEdit((s) => !s)}
+                        >
+                          <Text className="text-gray-800">
+                            {(editingFare.busType === "Others (specify)" && editingBusTypeCustom) ||
+                              editingFare.busType ||
+                              "Regular"}
+                          </Text>
+                          <Ionicons
+                            name={showBusTypeListEdit ? "chevron-up" : "chevron-down"}
+                            size={18}
+                            color="#6b7280"
+                          />
+                        </TouchableOpacity>
 
-                      {/* Actions: guaranteed vertical spacing between Edit & Delete */}
-                      <VSpace size={14} />
+                        {showBusTypeListEdit && (
+                          <View className="mt-2 bg-white border border-gray-200 rounded-md">
+                            {BUS_TYPES.map((opt) => (
+                              <TouchableOpacity
+                                key={opt}
+                                className="px-3 py-3 border-b border-gray-100"
+                                onPress={() => {
+                                  const updated: FareConfig = {
+                                    ...editingFare,
+                                    busType: opt,
+                                  }
+                                  setEditingFare(updated)
+                                  setShowBusTypeListEdit(false)
+                                  if (opt !== "Others (specify)") setEditingBusTypeCustom("")
+                                }}
+                              >
+                                <Text className="text-gray-800">{opt}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
 
-                      <TouchableOpacity
-                        className="flex-row items-center justify-center w-full py-4 border rounded-lg border-emerald-500"
-                        onPress={() => setEditingFare({ ...fareConfig })}
-                      >
-                        <Ionicons name="create-outline" size={18} color="#059669" />
-                        <Text className="ml-2 font-medium text-emerald-600">Edit</Text>
-                      </TouchableOpacity>
+                        {editingFare.busType === "Others (specify)" && (
+                          <>
+                            <VSpace size={10} />
+                            <TextInput
+                              className="p-3 bg-white border border-gray-300 rounded-md"
+                              value={editingBusTypeCustom}
+                              onChangeText={setEditingBusTypeCustom}
+                              placeholder="Please specify bus type"
+                            />
+                          </>
+                        )}
 
-                      <VSpace size={12} />
+                        <VSpace size={14} />
 
-                      <TouchableOpacity
-                        className="flex-row items-center justify-center w-full py-4 border border-red-500 rounded-lg"
-                        onPress={() => deleteFare(fareConfig)}
-                      >
-                        <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                        <Text className="ml-2 font-medium text-red-500">Delete</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-                </View>
-              ))}
+                        <TouchableOpacity
+                          className="items-center justify-center w-full py-4 rounded-lg bg-emerald-500"
+                          onPress={saveFareEdit}
+                        >
+                          <Text className="font-semibold text-white">Save</Text>
+                        </TouchableOpacity>
+
+                        <VSpace size={12} />
+
+                        <TouchableOpacity
+                          className="items-center justify-center w-full py-4 bg-gray-200 rounded-lg"
+                          onPress={() => {
+                            setEditingFare(null)
+                            setEditingBusTypeCustom("")
+                            setShowBusTypeListEdit(false)
+                          }}
+                        >
+                          <Text className="font-medium text-gray-800">Cancel</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                )
+              })}
             </>
           )}
         </View>
