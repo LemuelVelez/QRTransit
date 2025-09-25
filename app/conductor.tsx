@@ -41,6 +41,7 @@ export default function ConductorScreen() {
   const [busType, setBusType] = useState("Regular")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
+  const [via, setVia] = useState("") // VIA waypoints (separate multiple waypoints with “>” or “|” or newline)
   const [kilometer, setKilometer] = useState("")
   const [fare, setFare] = useState("")
   const [ticketCount, setTicketCount] = useState<number>(1)
@@ -64,7 +65,7 @@ export default function ConductorScreen() {
   const totalFareNumber = perPersonFareNumber * (ticketCount || 1)
   const totalFareString = formatCurrency(totalFareNumber)
 
-  const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string } | null>(null)
+  const [routeInfo, setRouteInfo] = useState<{ from: string; to: string; busNumber: string; via?: string[] } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [needsRefresh, setNeedsRefresh] = useState(false)
 
@@ -85,48 +86,51 @@ export default function ConductorScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const router = useRouter()
 
-  // ---------- NEW: Always ensure we have the live auth user as conductor ----------
+  // ---------- Always ensure we have the live auth user as conductor ----------
   const getEffectiveConductor = useCallback(async (): Promise<{ id: string; name: string }> => {
-    // If state already has it, use it
     if (conductorId) {
       return { id: conductorId, name: conductorName || "Conductor" }
     }
-    // Otherwise fetch the current user now
     try {
       const user = await getCurrentUser()
       if (user?.$id) {
         const id = user.$id
-        // Derive best-available display name
         const name =
           (user.firstname && user.lastname)
             ? `${user.firstname} ${user.lastname}`
             : user.username || user.email || "Conductor"
 
-        // Sync state so subsequent use is immediate
         setConductorId(id)
         setConductorName(name)
         return { id, name }
       }
-    } catch {
-      // ignore and fall through
-    }
+    } catch { }
     return { id: "", name: "Conductor" }
   }, [conductorId, conductorName])
-  // ------------------------------------------------------------------------------
+  // --------------------------------------------------------------------------
 
-  // Enhanced fare calculation using the fare service
+  // ✅ Do NOT split on commas; only on clear separators that won’t appear inside addresses
+  const splitVia = useCallback((value: string): string[] => {
+    return value
+      .split(/[>\n|;]+/g) // separators: ">", newline, "|", ";"
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }, [])
+
+  // Enhanced fare calculation using the fare service WITH VIA enforcement
   useEffect(() => {
     const calculateDistanceAndFare = async () => {
       if (from.trim() && to.trim() && from !== to) {
         setIsCalculatingDistance(true)
         setDistanceError(null)
         try {
-          const result = await calculateDistance(from, to)
+          const viaList = splitVia(via)
+          const result = await calculateDistance(from, to, { via: viaList })
+
           if (result.status === "OK" && result.distance > 0) {
             const distanceKm = result.distance.toFixed(2)
             setKilometer(distanceKm)
 
-            // Use the new fare service for calculation
             const fareCalculation = await calculateFareWithModifiers(
               result.distance,
               passengerType,
@@ -136,7 +140,7 @@ export default function ConductorScreen() {
             setFare(`₱${fareCalculation.finalFare.toFixed(2)}`)
             setDistanceError(null)
           } else {
-            setDistanceError("Could not calculate distance. Please check your locations.")
+            setDistanceError("Could not calculate distance. Please check your locations or VIA points.")
             setKilometer("")
             setFare("")
           }
@@ -157,7 +161,7 @@ export default function ConductorScreen() {
 
     const timeoutId = setTimeout(calculateDistanceAndFare, 500)
     return () => clearTimeout(timeoutId)
-  }, [from, to, passengerType, busType])
+  }, [from, to, via, passengerType, busType, splitVia])
 
   const loadActiveRoute = async (userId: string) => {
     try {
@@ -167,23 +171,17 @@ export default function ConductorScreen() {
           from: activeRoute.from,
           to: activeRoute.to,
           busNumber: activeRoute.busNumber,
+          via: Array.isArray((activeRoute as any).via) ? (activeRoute as any).via : undefined,
         })
         setFrom(activeRoute.from)
         setTo(activeRoute.to)
+        if (Array.isArray((activeRoute as any).via) && (activeRoute as any).via.length) {
+          setVia(((activeRoute as any).via as string[]).join(" > "))
+        }
       } else {
         Alert.alert("No Active Route", "You don't have an active route. Please set up or activate a route.", [
-          {
-            text: "Set Up Route",
-            onPress: () => {
-              router.replace({ pathname: "/conductor/route-setup" as any })
-            },
-          },
-          {
-            text: "Manage Routes",
-            onPress: () => {
-              router.replace({ pathname: "/conductor/manage-routes" as any })
-            },
-          },
+          { text: "Set Up Route", onPress: () => router.replace({ pathname: "/conductor/route-setup" as any }) },
+          { text: "Manage Routes", onPress: () => router.replace({ pathname: "/conductor/manage-routes" as any }) },
         ])
         return false
       }
@@ -324,7 +322,7 @@ export default function ConductorScreen() {
   }, [])
 
   useEffect(() => {
-    ;(async () => {
+    ; (async () => {
       if (!cameraPermission?.granted) await requestCameraPermission()
     })()
   }, [cameraPermission, requestCameraPermission])
@@ -341,7 +339,7 @@ export default function ConductorScreen() {
   useFocusEffect(
     useCallback(() => {
       onRefresh()
-      return () => {}
+      return () => { }
     }, [onRefresh]),
   )
 
@@ -386,7 +384,6 @@ export default function ConductorScreen() {
     if (!passengerData || totalFareNumber <= 0) return
 
     try {
-      // ✅ Ensure we are using the *current* auth user for conductorId/name
       const { id: authConductorId, name: authConductorName } = await getEffectiveConductor()
       if (!authConductorId) {
         Alert.alert("Error", "No authenticated conductor found.")
@@ -408,16 +405,13 @@ export default function ConductorScreen() {
           busType,
           String(ticketCount),
           fare,
-          /** carry passengerType */
           passengerType
         )
 
         setCurrentPaymentRequest(request)
         currentRequestIdRef.current = request.id
         chargedRef.current = false
-        // spinner stays until final state
       } else {
-        // CASH flow — save trip with assured conductorId
         const tripId = generateTripId()
         const trip = {
           passengerName: passengerData.name,
@@ -431,7 +425,7 @@ export default function ConductorScreen() {
           timestamp: Date.now(),
           paymentMethod: "Cash",
           transactionId: tripId,
-          conductorId: authConductorId,           // ✅ ensured auth user
+          conductorId: authConductorId,
           passengerPhoto: capturedImage || undefined,
           passengerType: passengerType,
           kilometer: kilometer,
@@ -467,13 +461,11 @@ export default function ConductorScreen() {
     }
   }
 
-  // Charge exactly once when approved
   const handleProcessPayment = async (request: PaymentRequest) => {
     if (!request) return
     if (request.status === "completed") return
 
     try {
-      // ✅ Ensure we have the *current* auth conductor ID at the moment of saving the trip
       const { id: authConductorId } = await getEffectiveConductor()
       if (!authConductorId) {
         setIsProcessingPayment(false)
@@ -504,7 +496,7 @@ export default function ConductorScreen() {
           timestamp: Date.now(),
           paymentMethod: "QR",
           transactionId: tripId,
-          conductorId: authConductorId,                   // ✅ ensured auth user
+          conductorId: authConductorId,
           passengerType: request.passengerType || passengerType,
           kilometer: kilometer,
           busNumber: request.busNumber || routeInfo?.busNumber,
@@ -574,11 +566,8 @@ export default function ConductorScreen() {
 
   const handlePaymentMethodChange = (method: "QR" | "Cash") => {
     setPaymentMethod(method)
-    if (method === "QR") {
-      setShowQrScanner(true)
-    } else {
-      setShowCameraCapture(true)
-    }
+    if (method === "QR") setShowQrScanner(true)
+    else setShowCameraCapture(true)
   }
 
   const navigateToManageDiscounts = () => {
@@ -631,31 +620,21 @@ export default function ConductorScreen() {
     <View className="flex-1 bg-emerald-400">
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
 
-      {/* --- Header (separated from route info) --- */}
+      {/* --- Header --- */}
       <View className="px-4 pt-12 pb-3 bg-emerald-700">
         <View className="flex-row items-center justify-end">
-          <TouchableOpacity
-            className="mr-3"
-            onPress={() => router.push({ pathname: "/conductor/history" as any })}
-          >
+          <TouchableOpacity className="mr-3" onPress={() => router.push({ pathname: "/conductor/history" as any })}>
             <Ionicons name="document-text-outline" size={24} color="white" />
           </TouchableOpacity>
-
-          <TouchableOpacity
-            className="mr-3"
-            onPress={() => router.push({ pathname: "/conductor/manage-routes" as any })}
-          >
+          <TouchableOpacity className="mr-3" onPress={() => router.push({ pathname: "/conductor/manage-routes" as any })}>
             <Ionicons name="map-outline" size={24} color="white" />
           </TouchableOpacity>
-
           <TouchableOpacity className="mr-3" onPress={navigateToManageDiscounts}>
             <Ionicons name="cash-outline" size={24} color="white" />
           </TouchableOpacity>
-
           <TouchableOpacity className="mr-3" onPress={navigateToManageFares}>
             <Ionicons name="calculator-outline" size={24} color="white" />
           </TouchableOpacity>
-
           <TouchableOpacity onPress={() => router.push({ pathname: "/conductor/profile" as any })}>
             <Ionicons name="person-outline" size={24} color="white" />
           </TouchableOpacity>
@@ -664,17 +643,16 @@ export default function ConductorScreen() {
 
       <ScrollView
         className="flex-1 p-4"
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#059669"]} tintColor="#ffffff" />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#059669"]} tintColor="#ffffff" />}
       >
         <View className="mt-2">
           {routeInfo && (
             <View className="p-3 mb-4 rounded-lg bg-emerald-700">
-              <Text className="font-bold text-white">
-                {routeInfo.from} → {routeInfo.to}
-              </Text>
+              <Text className="font-bold text-white">{routeInfo.from} → {routeInfo.to}</Text>
               <Text className="text-white opacity-80">Bus #{routeInfo.busNumber}</Text>
+              {!!routeInfo.via?.length && (
+                <Text className="mt-1 text-white opacity-80">Via: {routeInfo.via.join(" → ")}</Text>
+              )}
             </View>
           )}
 
@@ -698,6 +676,14 @@ export default function ConductorScreen() {
 
           <LocationInput label="From" value={from} onChange={setFrom} placeholder="Enter starting point" />
           <LocationInput label="To" value={to} onChange={setTo} placeholder="Enter destination" />
+
+          {/* ✅ VIA input uses non-comma separators */}
+          <LocationInput
+            label="Via (optional)"
+            value={via}
+            onChange={setVia}
+            placeholder="e.g., Ipil, Zamboanga Sibugay, Philippines  (use '>' to add more:  Ipil > Titay)"
+          />
 
           <View style={styles.fareCalculatorContainer}>
             <Text style={styles.sectionTitle}>Fare Calculation</Text>
@@ -741,17 +727,11 @@ export default function ConductorScreen() {
               <View style={[styles.fareRow, { borderBottomWidth: 0 }]}>
                 <Text style={styles.fareLabel}>Tickets (Passengers):</Text>
                 <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <TouchableOpacity
-                    onPress={() => setTicketCount((c) => Math.max(1, c - 1))}
-                    style={styles.qtyBtn}
-                  >
+                  <TouchableOpacity onPress={() => setTicketCount((c) => Math.max(1, c - 1))} style={styles.qtyBtn}>
                     <Text style={styles.qtyBtnText}>-</Text>
                   </TouchableOpacity>
                   <Text style={[styles.fareValue, { marginHorizontal: 12 }]}>{ticketCount}</Text>
-                  <TouchableOpacity
-                    onPress={() => setTicketCount((c) => Math.min(99, c + 1))}
-                    style={styles.qtyBtn}
-                  >
+                  <TouchableOpacity onPress={() => setTicketCount((c) => Math.min(99, c + 1))} style={styles.qtyBtn}>
                     <Text style={styles.qtyBtnText}>+</Text>
                   </TouchableOpacity>
                 </View>
@@ -765,7 +745,10 @@ export default function ConductorScreen() {
               </View>
             </View>
 
-            <Text style={styles.gpsNote}>💡 Enhanced with customizable fare rates. Manage fares using the calculator icon above.</Text>
+            <Text style={styles.gpsNote}>
+              💡 Use <Text style={{ fontWeight: "700" }}>Via</Text> to enforce a corridor (e.g., “Dipolog → Pagadian via Ipil”).
+              Separate multiple waypoints with <Text style={{ fontWeight: "700" }}>{"'>'"}</Text> or <Text style={{ fontWeight: "700" }}>|</Text>, not commas.
+            </Text>
           </View>
         </View>
       </ScrollView>

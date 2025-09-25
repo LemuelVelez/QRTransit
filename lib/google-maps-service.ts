@@ -4,109 +4,186 @@ interface DistanceResult {
   status: "OK" | "ZERO_RESULTS" | "ERROR";
 }
 
-// Calculate distance between two locations using Google Routes API v2
+type CalculateDistanceOptions = {
+  /** Waypoints you must pass through, in order (enforces corridor like “via Ipil”) */
+  via?: string[] | string;
+};
+
+type LatLng = { lat: number; lng: number }
+
+/**
+ * Geocode a free-form address/place into Lat/Lng using Google Geocoding API.
+ */
+async function geocodeAddress(address: string, apiKey: string): Promise<LatLng | null> {
+  try {
+    const url =
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`
+    const resp = await fetch(url)
+    const data = await resp.json()
+    if (data.status === "OK" && data.results?.[0]?.geometry?.location) {
+      const loc = data.results[0].geometry.location
+      return { lat: loc.lat, lng: loc.lng }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Calculate distance using Google Routes API v2 (preferred) with strict VIA,
+ * falling back to Distance Matrix API by chaining legs. All inputs are geocoded
+ * first to avoid address parsing ambiguity (especially for commas in addresses).
+ */
 export async function calculateDistance(
   origin: string,
-  destination: string
+  destination: string,
+  options?: CalculateDistanceOptions
 ): Promise<DistanceResult> {
   try {
     const routesApiKey = process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY;
     const mapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
+    const viaList: string[] =
+      Array.isArray(options?.via) ? options?.via
+        : options?.via ? [options.via]
+        : [];
+
     if (!routesApiKey && !mapsApiKey) {
-      console.error("Both Google API keys are missing");
-      return {
-        distance: 0,
-        duration: 0,
-        status: "ERROR",
-      };
+      console.error("Both Google API keys are missing")
+      return { distance: 0, duration: 0, status: "ERROR" }
     }
 
-    // First try with the Routes API v2 (if key is available)
+    // --- Geocode everything to coordinates (more reliable than free-form strings) ---
+    if (!mapsApiKey) {
+      // Without Maps key we cannot geocode; keep addresses as-is and rely on Routes API
+    }
+    let originLL: LatLng | null = null
+    let destLL: LatLng | null = null
+    let viasLL: (LatLng | null)[] = []
+
+    if (mapsApiKey) {
+      const [o, d, ...vs] = await Promise.all([
+        geocodeAddress(origin, mapsApiKey),
+        geocodeAddress(destination, mapsApiKey),
+        ...viaList.map((v) => geocodeAddress(v, mapsApiKey)),
+      ])
+      originLL = o
+      destLL = d
+      viasLL = vs
+    }
+
+    const haveAllCoords =
+      (!!originLL && !!destLL && viasLL.length === viaList.length && viasLL.every(Boolean))
+
+    // --- Preferred: Routes API v2 with coordinates (or addresses if no geocode) ---
     if (routesApiKey) {
       try {
-        const url = "https://routes.googleapis.com/directions/v2:computeRoutes";
+        const url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+
+        const toWaypoint = (ll: LatLng | null, addr: string) =>
+          ll
+            ? { location: { latLng: { latitude: ll.lat, longitude: ll.lng } } }
+            : { address: addr } // fallback if geocode missing
+
+        const body: any = {
+          origin: haveAllCoords ? { location: { latLng: { latitude: originLL!.lat, longitude: originLL!.lng } } }
+                                : { address: origin },
+          destination: haveAllCoords ? { location: { latLng: { latitude: destLL!.lat, longitude: destLL!.lng } } }
+                                     : { address: destination },
+          travelMode: "DRIVE",
+          routingPreference: "TRAFFIC_AWARE_OPTIMAL",
+          computeAlternativeRoutes: false,
+          optimizeWaypointOrder: false, // respect exact VIA order
+        }
+
+        if (viaList.length) {
+          const intermediates = viaList.map((v, i) => toWaypoint(viasLL[i] ?? null, v))
+          body.intermediates = intermediates
+        }
 
         const response = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": routesApiKey,
-            "X-Goog-FieldMask": "routes.distanceMeters,routes.duration",
+            "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.legs.distanceMeters,routes.legs.duration",
           },
-          body: JSON.stringify({
-            origin: {
-              address: origin,
-            },
-            destination: {
-              address: destination,
-            },
-            travelMode: "DRIVE",
-            routingPreference: "TRAFFIC_AWARE",
-          }),
-        });
+          body: JSON.stringify(body),
+        })
 
-        const data = await response.json();
+        const data = await response.json()
 
-        if (data.routes && data.routes.length > 0) {
-          const route = data.routes[0];
-          // Convert distance from meters to kilometers
-          const distanceInKm = route.distanceMeters / 1000;
-          // Convert duration from string (like "1200s") to seconds
-          const durationInSeconds = Number.parseInt(
-            route.duration.replace("s", "")
-          );
+        if (data?.routes?.length > 0) {
+          const route = data.routes[0]
+          let distanceMeters = route.distanceMeters ?? 0
+          let durationS = 0
 
-          return {
-            distance: distanceInKm,
-            duration: durationInSeconds,
-            status: "OK",
-          };
+          if (!distanceMeters && Array.isArray(route.legs) && route.legs.length) {
+            distanceMeters = route.legs.reduce((sum: number, leg: any) => sum + (leg?.distanceMeters ?? 0), 0)
+            durationS = route.legs.reduce((sum: number, leg: any) => {
+              const d = String(leg?.duration ?? "0").replace("s", "")
+              const n = Number.parseFloat(d)
+              return sum + (Number.isFinite(n) ? n : 0)
+            }, 0)
+          } else {
+            const d = String(route.duration ?? "0").replace("s", "")
+            const n = Number.parseFloat(d)
+            durationS = Number.isFinite(n) ? n : 0
+          }
+
+          const distanceKm = distanceMeters / 1000
+          if (distanceKm > 0) {
+            return { distance: distanceKm, duration: Math.round(durationS), status: "OK" }
+          }
         }
       } catch (routesError) {
-        console.error("Error with Routes API:", routesError);
-        // Fall through to try Maps API if Routes API fails
+        console.error("Routes API error:", routesError)
+        // fall through
       }
     }
 
-    // Fall back to Distance Matrix API if Routes API failed or key not available
+    // --- Fallback: Distance Matrix API, chaining legs origin -> via... -> destination ---
     if (mapsApiKey) {
-      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
-        origin
-      )}&destinations=${encodeURIComponent(destination)}&key=${mapsApiKey}`;
+      const coordToStr = (ll: LatLng) => `${ll.lat},${ll.lng}`
 
-      const response = await fetch(url);
-      const data = await response.json();
+      const getLeg = async (orig: string, dest: string): Promise<{ km: number; sec: number } | null> => {
+        const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(orig)}&destinations=${encodeURIComponent(dest)}&key=${mapsApiKey}`
+        const resp = await fetch(url)
+        const data = await resp.json()
+        if (data.status === "OK" && data.rows?.[0]?.elements?.[0]?.status === "OK") {
+          const el = data.rows[0].elements[0]
+          return { km: el.distance.value / 1000, sec: el.duration.value }
+        }
+        return null
+      }
 
-      // Check if the API returned valid results
-      if (data.status === "OK" && data.rows[0].elements[0].status === "OK") {
-        const element = data.rows[0].elements[0];
+      // Use coordinates if we have them; else use the raw address strings
+      const oStr = originLL ? coordToStr(originLL) : origin
+      const dStr = destLL ? coordToStr(destLL) : destination
+      const vStrs = viasLL.length ? viasLL.map((ll, i) => (ll ? coordToStr(ll) : viaList[i])) : viaList
 
-        // Convert distance from meters to kilometers
-        const distanceInKm = element.distance.value / 1000;
+      let points = [oStr, ...vStrs, dStr]
+      let totalKm = 0
+      let totalSec = 0
 
-        return {
-          distance: distanceInKm,
-          duration: element.duration.value,
-          status: "OK",
-        };
-      } else {
-        console.error("Error in Google Maps API response:", data);
+      for (let i = 0; i < points.length - 1; i++) {
+        const leg = await getLeg(points[i], points[i + 1])
+        if (!leg) {
+          return { distance: 0, duration: 0, status: "ERROR" }
+        }
+        totalKm += leg.km
+        totalSec += leg.sec
+      }
+
+      if (totalKm > 0) {
+        return { distance: totalKm, duration: Math.round(totalSec), status: "OK" }
       }
     }
 
-    // If we get here, both APIs failed or weren't available
-    return {
-      distance: 0,
-      duration: 0,
-      status: "ERROR",
-    };
+    return { distance: 0, duration: 0, status: "ERROR" }
   } catch (error) {
-    console.error("Error calculating distance:", error);
-    return {
-      distance: 0,
-      duration: 0,
-      status: "ERROR",
-    };
+    console.error("Error calculating distance:", error)
+    return { distance: 0, duration: 0, status: "ERROR" }
   }
 }
