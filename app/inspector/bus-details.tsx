@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -12,173 +12,496 @@ import {
   RefreshControl,
   Animated,
   Image,
-} from "react-native"
-import { useLocalSearchParams, useRouter } from "expo-router"
-import { Ionicons } from "@expo/vector-icons"
-import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite"
-import { getBusPassengers, markBusAsCleared, subscribeToBusPassengers } from "@/lib/inspector-service"
-import type { PassengerInfo } from "@/lib/types"
-import LocationFilterModal from "@/components/location-filter-modal"
-import InspectionClearanceModal from "@/components/inspection-clearance-modal"
+  Modal,
+  TextInput,
+} from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
+import { checkRoutePermission, getCurrentUser } from "@/lib/appwrite";
+import { getBusPassengers, markBusAsCleared, subscribeToBusPassengers } from "@/lib/inspector-service";
+import { placesAutocomplete, getPlaceDetails, type PlaceSuggestion } from "@/lib/google-maps-service";
+import type { PassengerInfo } from "@/lib/types";
+import LocationFilterModal from "@/components/location-filter-modal";
+
+/* --------------------------------------------
+ * Helpers & constants
+ * -------------------------------------------- */
 
 const COMMON_ROUTE_STOPS = {
   Pagadian: ["Pagadian", "Buug", "Ipil"],
   Buug: ["Buug", "Pagadian", "Ipil"],
   Ipil: ["Ipil", "Buug", "Pagadian"],
+};
+
+const makeSessionToken = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+/* --------------------------------------------
+ * Google-Places-powered Clearance Modal
+ * -------------------------------------------- */
+type ClearanceModalProps = {
+  visible: boolean;
+  onClose: () => void;
+  onSubmit: (from: string, to: string) => void;
+  isLoading: boolean;
+  routeStops: string[]; // kept for placeholders only
+};
+
+function ClearanceModal({ visible, onClose, onSubmit, isLoading, routeStops }: ClearanceModalProps) {
+  const [fromText, setFromText] = useState("");
+  const [toText, setToText] = useState("");
+  const [fromSug, setFromSug] = useState<PlaceSuggestion[]>([]);
+  const [toSug, setToSug] = useState<PlaceSuggestion[]>([]);
+  const [showFromSug, setShowFromSug] = useState(false);
+  const [showToSug, setShowToSug] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [requestingLoc, setRequestingLoc] = useState(false);
+  const sessRef = useRef<string>(makeSessionToken());
+  const fromRef = useRef<any>(null);
+  const toRef = useRef<any>(null);
+
+  // Reset suggestions any time the modal toggles
+  useEffect(() => {
+    if (!visible) {
+      setFromSug([]);
+      setToSug([]);
+      setShowFromSug(false);
+      setShowToSug(false);
+      setError(null);
+      return;
+    }
+    // fresh session per open
+    sessRef.current = makeSessionToken();
+  }, [visible]);
+
+  // Ask for GPS when modal opens (for location bias)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!visible) return;
+      try {
+        setRequestingLoc(true);
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          setCoords(null); // proceed without bias
+          return;
+        }
+        const pos = await Location.getCurrentPositionAsync({});
+        if (!cancelled) setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      } catch {
+        setCoords(null);
+      } finally {
+        setRequestingLoc(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
+
+  // Debounced fetch for "from" (only while suggestions are shown & field is focused)
+  useEffect(() => {
+    if (!visible || !showFromSug) {
+      setFromSug([]);
+      return;
+    }
+    const query = fromText.trim();
+    if (query.length < 2) {
+      setFromSug([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const suggestions = await placesAutocomplete(query, {
+        sessionToken: sessRef.current,
+        components: "country:ph",
+        locationBias: coords ? { lat: coords.lat, lng: coords.lng, radiusMeters: 30000 } : undefined,
+        types: "geocode",
+      });
+      setFromSug(suggestions);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [fromText, coords, visible, showFromSug]);
+
+  // Debounced fetch for "to" (only while suggestions are shown & field is focused)
+  useEffect(() => {
+    if (!visible || !showToSug) {
+      setToSug([]);
+      return;
+    }
+    const query = toText.trim();
+    if (query.length < 2) {
+      setToSug([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const suggestions = await placesAutocomplete(query, {
+        sessionToken: sessRef.current,
+        components: "country:ph",
+        locationBias: coords ? { lat: coords.lat, lng: coords.lng, radiusMeters: 30000 } : undefined,
+        types: "geocode",
+      });
+      setToSug(suggestions);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [toText, coords, visible, showToSug]);
+
+  // Prefer full formatted address when inserting selected suggestion,
+  // and HIDE suggestions permanently until user edits again.
+  const chooseFrom = async (s: PlaceSuggestion) => {
+    const details = await getPlaceDetails(s.placeId, sessRef.current);
+    const candidate = details?.formattedAddress || s.description || details?.name || s.mainText;
+    setShowFromSug(false);
+    setFromSug([]);
+    setFromText(candidate);
+    setError(null);
+    try { fromRef.current?.blur?.(); } catch {}
+  };
+
+  const chooseTo = async (s: PlaceSuggestion) => {
+    const details = await getPlaceDetails(s.placeId, sessRef.current);
+    const candidate = details?.formattedAddress || s.description || details?.name || s.mainText;
+    setShowToSug(false);
+    setToSug([]);
+    setToText(candidate);
+    setError(null);
+    try { toRef.current?.blur?.(); } catch {}
+  };
+
+  const handleSubmit = () => {
+    // Hide suggestion lists on submit
+    setShowFromSug(false);
+    setShowToSug(false);
+    setFromSug([]);
+    setToSug([]);
+
+    const fromVal = fromText.trim();
+    const toVal = toText.trim();
+
+    if (!fromVal || !toVal) {
+      setError("Please select both a start and end place.");
+      return;
+    }
+
+    // ✅ No strict route-stop validation; accept any places selected
+    onSubmit(fromVal, toVal);
+  };
+
+  const mapsKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const mapsMissing = !mapsKey;
+
+  return (
+    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View className="justify-end flex-1 bg-black/40">
+        <View className="p-5 bg-white rounded-t-2xl">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-lg font-bold text-gray-900">Clear Bus — Select Route Segment</Text>
+            <TouchableOpacity onPress={onClose} accessibilityLabel="Close">
+              <Ionicons name="close" size={22} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+
+          {mapsMissing && (
+            <View className="p-3 mb-3 rounded-lg bg-amber-50">
+              <Text className="text-sm text-amber-800">
+                Google Maps API key is missing. Set <Text className="font-bold">EXPO_PUBLIC_GOOGLE_MAPS_API_KEY</Text> to enable place suggestions.
+              </Text>
+            </View>
+          )}
+
+          {requestingLoc && (
+            <View className="p-2 mb-2 rounded-lg bg-blue-50">
+              <Text className="text-sm text-blue-700">Fetching your location to improve suggestions…</Text>
+            </View>
+          )}
+
+          {/* FROM */}
+          <View className="mb-4">
+            <Text className="mb-2 font-medium text-gray-700">From</Text>
+            <View className="flex-row items-center px-3 bg-gray-100 rounded-xl">
+              <Ionicons name="location-outline" size={18} color="#3b82f6" />
+              <TextInput
+                ref={fromRef}
+                className="flex-1 px-2 py-3 text-base"
+                placeholder={`Type a place (e.g., ${routeStops[0] ?? "Dipolog City, Zamboanga del Norte"})`}
+                value={fromText}
+                onFocus={() => setShowFromSug(true)}
+                onBlur={() => {
+                  setTimeout(() => {
+                    setShowFromSug(false);
+                    setFromSug([]);
+                  }, 100);
+                }}
+                onChangeText={(t) => {
+                  setFromText(t);
+                  setShowFromSug(true);
+                }}
+                autoCorrect={false}
+                autoCapitalize="words"
+              />
+              {fromText.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setFromText("");
+                    setFromSug([]);
+                    setShowFromSug(true);
+                  }}
+                  className="p-2"
+                >
+                  <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {showFromSug && fromSug.length > 0 && (
+              <View className="mt-2 bg-white border border-gray-200 rounded-xl">
+                {fromSug.slice(0, 6).map((sug) => (
+                  <TouchableOpacity
+                    key={sug.placeId}
+                    className="px-3 py-2 border-b border-gray-100"
+                    onPress={() => chooseFrom(sug)}
+                  >
+                    <Text className="text-gray-900">{sug.description}</Text>
+                    {!!sug.secondaryText && (
+                      <Text className="text-xs text-gray-500">{sug.secondaryText}</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* TO */}
+          <View className="mb-4">
+            <Text className="mb-2 font-medium text-gray-700">To</Text>
+            <View className="flex-row items-center px-3 bg-gray-100 rounded-xl">
+              <Ionicons name="flag-outline" size={18} color="#3b82f6" />
+              <TextInput
+                ref={toRef}
+                className="flex-1 px-2 py-3 text-base"
+                placeholder={`Type a place (e.g., ${routeStops[routeStops.length - 1] ?? "Pagadian City, Zamboanga del Sur"})`}
+                value={toText}
+                onFocus={() => setShowToSug(true)}
+                onBlur={() => {
+                  setTimeout(() => {
+                    setShowToSug(false);
+                    setToSug([]);
+                  }, 100);
+                }}
+                onChangeText={(t) => {
+                  setToText(t);
+                  setShowToSug(true);
+                }}
+                autoCorrect={false}
+                autoCapitalize="words"
+              />
+              {toText.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setToText("");
+                    setToSug([]);
+                    setShowToSug(true);
+                  }}
+                  className="p-2"
+                >
+                  <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {showToSug && toSug.length > 0 && (
+              <View className="mt-2 bg-white border border-gray-200 rounded-xl">
+                {toSug.slice(0, 6).map((sug) => (
+                  <TouchableOpacity
+                    key={sug.placeId}
+                    className="px-3 py-2 border-b border-gray-100"
+                    onPress={() => chooseTo(sug)}
+                  >
+                    <Text className="text-gray-900">{sug.description}</Text>
+                    {!!sug.secondaryText && (
+                      <Text className="text-xs text-gray-500">{sug.secondaryText}</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {!!error && (
+            <View className="p-3 mb-3 bg-red-50 rounded-xl">
+              <Text className="text-sm text-red-700">{error}</Text>
+            </View>
+          )}
+
+          <View className="flex-row justify-end">
+            <TouchableOpacity className="px-4 py-3 mr-2 bg-gray-100 rounded-xl" onPress={onClose}>
+              <Text className="font-medium text-gray-700">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              className={`px-4 py-3 rounded-xl ${isLoading ? "bg-blue-400" : "bg-blue-600"}`}
+              onPress={handleSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <View className="flex-row items-center">
+                  <ActivityIndicator size="small" color="white" />
+                  <Text className="ml-2 font-medium text-white">Clearing…</Text>
+                </View>
+              ) : (
+                <Text className="font-medium text-white">Clear Bus</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
-export default function BusDetailsScreen() {
-  const params = useLocalSearchParams()
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [passengers, setPassengers] = useState<PassengerInfo[]>([])
-  const [filteredPassengers, setFilteredPassengers] = useState<PassengerInfo[]>([])
-  const [showFilterModal, setShowFilterModal] = useState(false)
-  const [showClearanceModal, setShowClearanceModal] = useState(false)
-  const [activeFilter, setActiveFilter] = useState<string | null>(null)
-  const [inspectorId, setInspectorId] = useState("")
-  const [isClearing, setIsClearing] = useState(false)
-  const [routeStops, setRouteStops] = useState<string[]>([])
-  const fadeAnim = useRef(new Animated.Value(0)).current
-  const slideAnim = useRef(new Animated.Value(50)).current
+/* --------------------------------------------
+ * Main Screen
+ * -------------------------------------------- */
 
-  const { busId, busNumber, conductorId, conductorName, from, to } = params
+export default function BusDetailsScreen() {
+  const params = useLocalSearchParams();
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [passengers, setPassengers] = useState<PassengerInfo[]>([]);
+  const [filteredPassengers, setFilteredPassengers] = useState<PassengerInfo[]>([]);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showClearanceModal, setShowClearanceModal] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [inspectorId, setInspectorId] = useState("");
+  const [isClearing, setIsClearing] = useState(false);
+  const [routeStops, setRouteStops] = useState<string[]>([]);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+
+  const { busId, busNumber, conductorId, conductorName, from, to } = params as Record<string, string>;
 
   useEffect(() => {
     async function checkAccess() {
       try {
-        const hasPermission = await checkRoutePermission("inspector")
+        const hasPermission = await checkRoutePermission("inspector");
         if (!hasPermission) {
-          Alert.alert("Access Denied", "You don't have permission to access this screen.")
-          router.replace("/")
-          return
+          Alert.alert("Access Denied", "You don't have permission to access this screen.");
+          router.replace("/");
+          return;
         }
 
         try {
-          const user = await getCurrentUser()
-          if (user) setInspectorId(user.$id || "")
+          const user = await getCurrentUser();
+          if (user) setInspectorId(user.$id || "");
         } catch (userError) {
-          console.error("Error loading inspector data:", userError)
+          console.error("Error loading inspector data:", userError);
         }
 
-        setRouteStops(getRouteLocations(from as string, to as string))
-        await loadPassengers()
+        setRouteStops(getRouteLocations(from as string, to as string));
+        await loadPassengers();
 
         Animated.parallel([
           Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
           Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-        ]).start()
-        setLoading(false)
+        ]).start();
+        setLoading(false);
       } catch (error) {
-        console.error("Error checking access:", error)
-        Alert.alert("Error", "Failed to verify access permissions.")
-        router.replace("/")
+        console.error("Error checking access:", error);
+        Alert.alert("Error", "Failed to verify access permissions.");
+        router.replace("/");
       }
     }
 
-    checkAccess()
+    checkAccess();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busId, conductorId])
+  }, [busId, conductorId]);
 
   // ✅ Realtime: subscribe to trips for this bus & conductor
   useEffect(() => {
-    if (!busNumber || !conductorId) return
+    if (!busNumber || !conductorId) return;
     const unsubscribe = subscribeToBusPassengers(String(busNumber), String(conductorId), async () => {
-      await loadPassengers()
-    })
+      await loadPassengers();
+    });
     return () => {
-      try { unsubscribe?.() } catch { }
-    }
-  }, [busNumber, conductorId])
+      try { unsubscribe?.(); } catch { /* noop */ }
+    };
+  }, [busNumber, conductorId]);
 
   const loadPassengers = async () => {
     try {
-      setLoading(true)
+      setLoading(true);
       if (!busId || !conductorId) {
-        Alert.alert("Error", "Missing bus or conductor information")
-        router.back()
-        return
+        Alert.alert("Error", "Missing bus or conductor information");
+        router.back();
+        return;
       }
-      const passengerList = await getBusPassengers(busId as string, conductorId as string)
-      setPassengers(passengerList)
-      setFilteredPassengers(passengerList)
+      const passengerList = await getBusPassengers(busId as string, conductorId as string);
+      setPassengers(passengerList);
+      setFilteredPassengers(passengerList);
     } catch (error) {
-      console.error("Error loading passengers:", error)
-      Alert.alert("Error", "Failed to load passenger information")
+      console.error("Error loading passengers:", error);
+      Alert.alert("Error", "Failed to load passenger information");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleRefresh = async () => {
-    setRefreshing(true)
-    await loadPassengers()
-    setRefreshing(false)
-  }
+    setRefreshing(true);
+    await loadPassengers();
+    setRefreshing(false);
+  };
 
   const handleFilter = (location: string | null) => {
-    setActiveFilter(location)
-    setShowFilterModal(false)
+    setActiveFilter(location);
+    setShowFilterModal(false);
     if (!location) {
-      setFilteredPassengers(passengers)
-      return
+      setFilteredPassengers(passengers);
+      return;
     }
     const filtered = passengers.filter((p) => {
-      const routeArray = getRouteLocations(from as string, to as string)
-      const filterIdx = routeArray.indexOf(location)
-      const fromIdx = routeArray.indexOf(p.from)
-      const toIdx = routeArray.indexOf(p.to)
-      return fromIdx >= filterIdx || toIdx > filterIdx
-    })
-    setFilteredPassengers(filtered)
-  }
+      const routeArray = getRouteLocations(from as string, to as string);
+      const filterIdx = routeArray.indexOf(location);
+      const fromIdx = routeArray.indexOf(p.from);
+      const toIdx = routeArray.indexOf(p.to);
+      return fromIdx >= filterIdx || toIdx > filterIdx;
+    });
+    setFilteredPassengers(filtered);
+  };
 
   const getRouteLocations = (fromLocation: string, toLocation: string): string[] => {
     for (const stops of Object.values(COMMON_ROUTE_STOPS)) {
       if (stops.includes(fromLocation) && stops.includes(toLocation)) {
-        const start = stops.indexOf(fromLocation)
-        const end = stops.indexOf(toLocation)
-        if (start < end) return stops.slice(start, end + 1)
-        return stops.slice(end, start + 1).reverse()
+        const start = stops.indexOf(fromLocation);
+        const end = stops.indexOf(toLocation);
+        if (start < end) return stops.slice(start, end + 1);
+        return stops.slice(end, start + 1).reverse();
       }
     }
-    return [fromLocation, toLocation]
-  }
+    return [fromLocation, toLocation];
+  };
 
-  const validateInspectionLocations = (inspectionFrom: string, inspectionTo: string): boolean => {
-    const routeArray = getRouteLocations(from as string, to as string)
-    const iFrom = routeArray.indexOf(inspectionFrom)
-    const iTo = routeArray.indexOf(inspectionTo)
-    return iFrom !== -1 && iTo !== -1 && iFrom <= iTo
-  }
+  // ✅ Removed strict validateInspectionLocations — any places are allowed
 
   const handleClearBus = async (inspectionFrom: string, inspectionTo: string) => {
-    if (!validateInspectionLocations(inspectionFrom, inspectionTo)) {
-      Alert.alert(
-        "Invalid Inspection Route",
-        "The inspection locations must be valid stops on the bus route and in the correct order.",
-      )
-      return
-    }
     try {
-      setIsClearing(true)
-      const success = await markBusAsCleared(busId as string, inspectorId, inspectionFrom, inspectionTo)
+      setIsClearing(true);
+      const success = await markBusAsCleared(busId as string, inspectorId, inspectionFrom, inspectionTo);
       if (success) {
         Alert.alert("Bus Cleared", "The bus has been successfully marked as cleared.", [
           { text: "OK", onPress: () => router.back() },
-        ])
+        ]);
       } else {
-        Alert.alert("Error", "Failed to mark bus as cleared")
+        Alert.alert("Error", "Failed to mark bus as cleared");
       }
     } catch (error) {
-      console.error("Error clearing bus:", error)
-      Alert.alert("Error", "Failed to mark bus as cleared")
+      console.error("Error clearing bus:", error);
+      Alert.alert("Error", "Failed to mark bus as cleared");
     } finally {
-      setIsClearing(false)
-      setShowClearanceModal(false)
+      setIsClearing(false);
+      setShowClearanceModal(false);
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -187,7 +510,7 @@ export default function BusDetailsScreen() {
         <ActivityIndicator size="large" color="white" />
         <Text className="mt-4 font-medium text-white">Loading passenger information...</Text>
       </View>
-    )
+    );
   }
 
   return (
@@ -352,13 +675,19 @@ export default function BusDetailsScreen() {
                     {/* ✅ Visible payment method chip */}
                     <View className="flex-row justify-end pt-2 mt-2 border-gray-100 border-top">
                       <View
-                        className={`rounded-full px-2 py-0.5 flex-row items-center ${passenger.paymentMethod === "QR" ? "bg-emerald-100" : "bg-gray-100"
-                          }`}
+                        className={`rounded-full px-2 py-0.5 flex-row items-center ${
+                          passenger.paymentMethod === "QR" ? "bg-emerald-100" : "bg-gray-100"
+                        }`}
                       >
-                        <Ionicons name="card-outline" size={12} color={passenger.paymentMethod === "QR" ? "#059669" : "#6b7280"} />
+                        <Ionicons
+                          name="card-outline"
+                          size={12}
+                          color={passenger.paymentMethod === "QR" ? "#059669" : "#6b7280"}
+                        />
                         <Text
-                          className={`text-xs ml-1 ${passenger.paymentMethod === "QR" ? "text-emerald-700" : "text-gray-600"
-                            }`}
+                          className={`text-xs ml-1 ${
+                            passenger.paymentMethod === "QR" ? "text-emerald-700" : "text-gray-600"
+                          }`}
                         >
                           {passenger.paymentMethod}
                         </Text>
@@ -374,6 +703,7 @@ export default function BusDetailsScreen() {
         </ScrollView>
       </Animated.View>
 
+      {/* Filter Modal (unchanged) */}
       <LocationFilterModal
         visible={showFilterModal}
         onClose={() => setShowFilterModal(false)}
@@ -382,15 +712,14 @@ export default function BusDetailsScreen() {
         currentFilter={activeFilter}
       />
 
-      <InspectionClearanceModal
+      {/* New Google-Places Clearance Modal */}
+      <ClearanceModal
         visible={showClearanceModal}
         onClose={() => setShowClearanceModal(false)}
         onSubmit={handleClearBus}
         isLoading={isClearing}
-        routeFrom={from as string}
-        routeTo={to as string}
         routeStops={routeStops}
       />
     </View>
-  )
+  );
 }
