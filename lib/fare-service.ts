@@ -1,6 +1,6 @@
+// lib/fare-service.ts
 import { ID, Query } from "react-native-appwrite";
 import { databases, config } from "./appwrite";
-import { getCurrentUser } from "./appwrite";
 import Constants from "expo-constants";
 
 export interface FareConfig {
@@ -10,8 +10,7 @@ export interface FareConfig {
   active: boolean;
   description?: string;
   createdAt?: string;
-  busType?: string; // ✅ existing
-  conductorId?: string; // ✅ creator/owner of this fare row
+  busType?: string;
 }
 
 // Robust env read (backup if config is missing)
@@ -76,22 +75,25 @@ export async function getFareConfigurations(): Promise<FareConfig[]> {
     const col = getFareCollectionId();
     if (!db || !col) return [];
 
-    // ⭐ We do NOT filter by conductorId here. Fare schedule is global;
-    //    ownership is only for UI locking and (ideally) server-side rules.
+    // Fetch ALL fare rows (no conductor-specific filtering)
     const docs = await listAllDocuments(db, col, [
       Query.orderDesc("$createdAt"),
     ]);
 
-    return docs.map((doc: any) => ({
-      id: doc.$id,
-      fare: String(doc.fare || "0"),
-      kilometer: String(doc.kilometer || "0"),
-      active: !!doc.active,
-      description: doc.description || "",
-      createdAt: doc.$createdAt,
-      busType: doc.busType || "Regular",
-      conductorId: doc.conductorId || "",
-    }));
+    return docs.map((doc: any) => {
+      const item: FareConfig = {
+        id: doc.$id,
+        fare: String(doc.fare || "0"),
+        kilometer: String(doc.kilometer || "0"),
+        active: !!doc.active,
+        description: doc.description || "",
+        createdAt: doc.$createdAt,
+      };
+      if (typeof doc.busType === "string" && doc.busType.trim().length > 0) {
+        item.busType = String(doc.busType).trim();
+      }
+      return item;
+    });
   } catch (e) {
     console.error("getFareConfigurations error:", e);
     return [];
@@ -109,25 +111,16 @@ export async function saveFareConfiguration(
       return null;
     }
 
-    // ✅ Attribute the fare row to the current authenticated user
-    let effectiveConductorId = (data.conductorId || "").trim();
-    if (!effectiveConductorId) {
-      try {
-        const user = await getCurrentUser();
-        if (user?.$id) effectiveConductorId = user.$id;
-      } catch {
-        // no-op
-      }
-    }
-
-    const payload = {
+    const payload: any = {
       fare: String(data.fare || "0"),
       kilometer: String(data.kilometer || "0"),
       active: !!data.active,
       description: data.description || "",
-      busType: (data.busType || "Regular").trim(),
-      conductorId: effectiveConductorId || "", // ✅ saved on create
     };
+
+    if (data.busType && data.busType.trim()) {
+      payload.busType = data.busType.trim();
+    }
 
     const res = await databases.createDocument(db, col, ID.unique(), payload);
     return res.$id || null;
@@ -150,8 +143,11 @@ export async function updateFareConfiguration(
   if (data.kilometer !== undefined) payload.kilometer = String(data.kilometer);
   if (data.active !== undefined) payload.active = !!data.active;
   if (data.description !== undefined) payload.description = data.description;
-  if (data.busType !== undefined) payload.busType = String(data.busType).trim();
-  // ❌ Do not allow overwriting conductorId from here (ownership stays as creator)
+  if (data.busType !== undefined) {
+    const cleaned = String(data.busType).trim();
+    if (cleaned.length > 0) payload.busType = cleaned;
+    else payload.busType = null; // clear if empty string provided
+  }
 
   try {
     await databases.updateDocument(db, col, id, payload);
@@ -225,8 +221,8 @@ export async function getFareForDistance(distance: number): Promise<number> {
 
 export async function calculateFareWithModifiers(
   distance: number,
-  passengerType: string = "Regular",
-  busType: string = "Regular"
+  passengerType: string = "",
+  busType: string = ""
 ): Promise<{
   baseFare: number;
   finalFare: number;

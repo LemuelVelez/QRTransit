@@ -37,8 +37,9 @@ import { calculateDistance } from "@/lib/google-maps-service"
 import { calculateFareWithModifiers } from "@/lib/fare-service"
 
 export default function ConductorScreen() {
-  const [passengerType, setPassengerType] = useState("Regular")
-  const [busType, setBusType] = useState("Regular")
+  // ⛔ No default "Regular" values
+  const [passengerType, setPassengerType] = useState("")
+  const [busType, setBusType] = useState("")
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [via, setVia] = useState("") // VIA waypoints (separate multiple waypoints with “>” or “|” or newline)
@@ -117,7 +118,7 @@ export default function ConductorScreen() {
       .filter(Boolean)
   }, [])
 
-  // Enhanced fare calculation using the fare service WITH VIA enforcement
+  // Enhanced fare calculation using the fare service (will respect empty types = no discount/multiplier)
   useEffect(() => {
     const calculateDistanceAndFare = async () => {
       if (from.trim() && to.trim() && from !== to) {
@@ -402,10 +403,10 @@ export default function ConductorScreen() {
           from || "Unknown",
           to || "Unknown",
           routeInfo?.busNumber,
-          busType,
+          busType || "N/A",
           String(ticketCount),
           fare,
-          passengerType
+          passengerType || "N/A"
         )
 
         setCurrentPaymentRequest(request)
@@ -427,10 +428,10 @@ export default function ConductorScreen() {
           transactionId: tripId,
           conductorId: authConductorId,
           passengerPhoto: capturedImage || undefined,
-          passengerType: passengerType,
+          passengerType: passengerType || "N/A",
           kilometer: kilometer,
           busNumber: routeInfo?.busNumber,
-          busType: busType,
+          busType: busType || "N/A",
         }
         const savedTripId = await saveTrip(trip)
         setShowPaymentConfirmation(false)
@@ -447,10 +448,10 @@ export default function ConductorScreen() {
             from: from,
             to: to,
             timestamp: new Date().toLocaleString(),
-            passengerType: passengerType,
+            passengerType: passengerType || "N/A",
             paymentMethod: "Cash",
             busNumber: routeInfo?.busNumber,
-            busType: busType,
+            busType: busType || "N/A",
           },
         })
       }
@@ -497,10 +498,10 @@ export default function ConductorScreen() {
           paymentMethod: "QR",
           transactionId: tripId,
           conductorId: authConductorId,
-          passengerType: request.passengerType || passengerType,
+          passengerType: request.passengerType || passengerType || "N/A",
           kilometer: kilometer,
           busNumber: request.busNumber || routeInfo?.busNumber,
-          busType: request.busType || busType,
+          busType: request.busType || busType || "N/A",
         }
         const savedTripId = await saveTrip(trip)
 
@@ -528,10 +529,10 @@ export default function ConductorScreen() {
             from: request.from,
             to: request.to,
             timestamp: new Date().toLocaleString(),
-            passengerType: request.passengerType || passengerType,
+            passengerType: request.passengerType || passengerType || "N/A",
             paymentMethod: "QR",
             busNumber: request.busNumber || routeInfo?.busNumber,
-            busType: request.busType || busType,
+            busType: request.busType || busType || "N/A",
           },
         })
       } else {
@@ -615,6 +616,9 @@ export default function ConductorScreen() {
       />
     )
   }
+
+  const humanOrUnavailable = (s: string) =>
+    s && s.trim().length > 0 ? s : "No available — contact the admin to create."
 
   return (
     <View className="flex-1 bg-emerald-400">
@@ -704,7 +708,7 @@ export default function ConductorScreen() {
             <View style={styles.fareDisplayContainer}>
               <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
                 <Text style={styles.fareLabel}>Bus Type:</Text>
-                <Text style={styles.fareValue}>{busType}</Text>
+                <Text style={styles.fareValue}>{humanOrUnavailable(busType)}</Text>
               </View>
 
               <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
@@ -716,7 +720,7 @@ export default function ConductorScreen() {
 
               <View className="flex-row items-center justify-between py-2 border-b border-gray-100">
                 <Text style={styles.fareLabel}>Passenger Type:</Text>
-                <Text style={styles.fareValue}>{passengerType}</Text>
+                <Text style={styles.fareValue}>{humanOrUnavailable(passengerType)}</Text>
               </View>
 
               <View className="flex-row items-center justify-between py-2 border-b border-gray-100">

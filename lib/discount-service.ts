@@ -5,7 +5,7 @@ import Constants from "expo-constants";
 
 export interface DiscountConfig {
   id?: string;
-  passengerType: string; // "Regular" | "Student" | ... OR "BASE" for bus rules
+  passengerType: string; // passenger type label OR "BASE" for bus rules
   busType?: string; // Only present for bus type rows
   discountPercentage: string;
   description?: string;
@@ -157,7 +157,7 @@ export async function saveDiscountConfiguration(
         return null;
       }
       const payload = {
-        busType: String(data.busType || "Regular").trim(),
+        busType: String(data.busType || "").trim(), // ⛔ no "Regular" default
         multiplier: toMultiplierStrFromPct(data.discountPercentage ?? "0"),
         description: data.description || "",
         active: !!data.active,
@@ -271,18 +271,16 @@ export async function deleteDiscountConfiguration(
 // ---------------- Queries / Helpers ----------------
 export async function getDiscountPercentage(
   passengerType: string,
-  busType: string
+  _busType: string
 ): Promise<number> {
   const all = await getDiscountConfigurations();
   const passengerOnly = all.filter((d) => d.active && d.passengerType !== BASE);
 
+  // Only exact passengerType discount; ⛔ no fallback to "Regular"
   const exact = passengerOnly.find((d) => eq(d.passengerType, passengerType));
   if (exact) return clampPct(exact.discountPercentage);
 
-  const regular = passengerOnly.find((d) => eq(d.passengerType, "Regular"));
-  if (regular) return clampPct(regular.discountPercentage);
-
-  return 0;
+  return 0; // no available discount
 }
 
 export async function getBusTypeConfigurations(): Promise<
@@ -292,23 +290,25 @@ export async function getBusTypeConfigurations(): Promise<
     const docs = await listBusTypeDocs();
     const map: Record<string, boolean> = {};
     for (const doc of docs) {
-      const key = (doc.busType || "Regular").trim();
+      const key = String(doc.busType || "").trim();
+      if (!key) continue;
       if (!map[key]) map[key] = false;
       if (doc.active) map[key] = true;
     }
-    if (!("Regular" in map)) map["Regular"] = true;
+    // ⛔ Do not inject "Regular" or any placeholder
     return Object.keys(map).map((k) => ({ busType: k, active: map[k] }));
   } catch (e) {
     console.warn("getBusTypeConfigurations error:", e);
-    return [{ busType: "Regular", active: true }];
+    return []; // ⛔ no placeholder
   }
 }
 
 export async function getBusTypeFareMultiplier(
   busType: string
 ): Promise<number> {
+  // Allow some common types as safety fallback if explicitly chosen,
+  // but do NOT assume any default when busType is empty.
   const FALLBACK: Record<string, number> = {
-    Regular: 1.0,
     Aircon: 1.2,
     "Air-Conditioned": 1.2,
     "Air Conditioned": 1.2,
@@ -316,7 +316,8 @@ export async function getBusTypeFareMultiplier(
     Premium: 1.5,
   };
 
-  const bt = (busType || "Regular").trim();
+  const bt = (busType || "").trim();
+  if (!bt) return 1.0; // ⛔ no default name; neutral multiplier
 
   try {
     const docs = await listBusTypeDocs();

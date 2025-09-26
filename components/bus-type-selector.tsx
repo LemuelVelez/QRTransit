@@ -13,7 +13,7 @@ type Props = {
 
 export default function BusTypeSelector({ value, onChange }: Props) {
     const [loading, setLoading] = useState(true)
-    const [types, setTypes] = useState<string[]>(["Regular"])
+    const [types, setTypes] = useState<string[]>([])
     const [error, setError] = useState<string | null>(null)
 
     const load = useCallback(async () => {
@@ -35,21 +35,22 @@ export default function BusTypeSelector({ value, onChange }: Props) {
                 return true
             })
 
-            const list = deduped.length > 0 ? deduped : ["Regular"]
+            // ⛔ Do not inject any placeholder like "Regular"
+            const list = deduped
 
-            list.sort((a, b) =>
-                a.toLowerCase() === "regular" ? -1 : b.toLowerCase() === "regular" ? 1 : a.localeCompare(b),
-            )
+            // Sort alphabetically
+            list.sort((a, b) => a.localeCompare(b))
 
             setTypes(list)
 
+            // If we have real data and current value isn't present, select the first available
             const hasCurrent = list.some((t) => t.toLowerCase() === String(value || "").toLowerCase())
-            if (!hasCurrent) onChange(list[0])
+            if (list.length > 0 && !hasCurrent) onChange(list[0])
+            // If no data, keep current value as-is (likely empty)
         } catch (e: any) {
-            console.warn("BusTypeSelector: failed to load bus types, using fallback.", e?.message || e)
-            setTypes(["Regular"])
-            setError("Couldn’t load bus types. Using default.")
-            if (String(value).toLowerCase() !== "regular") onChange("Regular")
+            console.warn("BusTypeSelector: failed to load bus types.", e?.message || e)
+            setTypes([])
+            setError("Failed to load bus types.")
         } finally {
             setLoading(false)
         }
@@ -73,29 +74,33 @@ export default function BusTypeSelector({ value, onChange }: Props) {
                     <ActivityIndicator size="small" />
                     <Text className="mt-2 text-gray-500">Loading available bus types…</Text>
                 </View>
+            ) : types.length === 0 ? (
+                <View className="p-3 bg-white rounded-md">
+                    <Text className="italic text-gray-700">
+                        No available bus types — contact the admin to create.
+                    </Text>
+                </View>
             ) : (
-                <>
-                    {error && (
-                        <View className="p-2 mb-2 rounded bg-yellow-50">
-                            <Text className="text-xs text-yellow-700">{error}</Text>
-                        </View>
-                    )}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
-                        {types.map((t) => {
-                            const selected = String(value).toLowerCase() === t.toLowerCase()
-                            return (
-                                <TouchableOpacity
-                                    key={t}
-                                    onPress={() => onChange(t)}
-                                    className={`px-4 py-2 mr-2 rounded-full border ${selected ? "bg-white border-white" : "bg-emerald-600 border-white/40"
-                                        }`}
-                                >
-                                    <Text className={`${selected ? "text-emerald-700 font-bold" : "text-white font-semibold"}`}>{t}</Text>
-                                </TouchableOpacity>
-                            )
-                        })}
-                    </ScrollView>
-                </>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row">
+                    {types.map((t) => {
+                        const selected = String(value).toLowerCase() === t.toLowerCase()
+                        return (
+                            <TouchableOpacity
+                                key={t}
+                                onPress={() => onChange(t)}
+                                className={`px-4 py-2 mr-2 rounded-full border ${selected ? "bg-white border-white" : "bg-emerald-600 border-white/40"}`}
+                            >
+                                <Text className={`${selected ? "text-emerald-700 font-bold" : "text-white font-semibold"}`}>{t}</Text>
+                            </TouchableOpacity>
+                        )
+                    })}
+                </ScrollView>
+            )}
+
+            {error && !loading && (
+                <View className="p-2 mt-2 rounded bg-yellow-50">
+                    <Text className="text-xs text-yellow-700">{error}</Text>
+                </View>
             )}
         </View>
     )

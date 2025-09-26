@@ -34,34 +34,22 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
           .map((d: any) => String(d?.passengerType || "").trim())
           .filter((t: string) => t.length > 0)
 
-        // Deduplicate
-        const unique = Array.from(new Set(types))
-
-        // Ensure "Regular" exists and is shown first
-        if (!unique.includes("Regular")) unique.unshift("Regular")
-
-        // Optional: sort remaining alphabetically, keeping "Regular" on top
-        const sorted = ["Regular", ...unique.filter((t) => t !== "Regular").sort((a, b) => a.localeCompare(b))]
+        // Deduplicate and sort
+        const uniqueSorted = Array.from(new Set(types)).sort((a, b) => a.localeCompare(b))
 
         if (!isMounted) return
-        setPassengerTypes(sorted)
+        setPassengerTypes(uniqueSorted)
 
-        // If current value is not in the list and we have types, update the value
-        if (sorted.length > 0 && !sorted.includes(value)) {
-          onChange(sorted[0])
+        // Auto-select first only when there is real data and current value is not present
+        if (uniqueSorted.length > 0 && !uniqueSorted.includes(value)) {
+          onChange(uniqueSorted[0])
         }
+        // If none, keep current value (likely empty)
       } catch (err) {
         console.error("Error fetching passenger types:", err)
         if (!isMounted) return
         setError("Failed to load passenger types")
-
-        // Fallback types
-        const fallback = ["Regular", "Student", "Senior citizen", "Person's with Disabilities"]
-        setPassengerTypes(fallback)
-
-        if (!fallback.includes(value)) {
-          onChange(fallback[0])
-        }
+        setPassengerTypes([]) // ⛔ no mock fallback
       } finally {
         if (isMounted) setLoading(false)
       }
@@ -71,8 +59,6 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
     return () => {
       isMounted = false
     }
-    // We intentionally depend only on `value` and `onChange`.
-    // The parent will force a re-mount via changing `key` when it needs a refresh.
   }, [value, onChange])
 
   const handleSelect = (type: string) => {
@@ -88,49 +74,49 @@ export default function PassengerTypeSelector({ value, onChange }: PassengerType
         </TouchableWithoutFeedback>
       )}
 
-      <Text className="mb-2 text-xl font-bold text-black">Passenger</Text>
+      <Text className="mb-2 text-xl font-bold text-white">Passenger</Text>
 
       {loading ? (
         <View className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md">
           <Text>Loading passenger types...</Text>
           <ActivityIndicator size="small" color="#10b981" />
         </View>
+      ) : passengerTypes.length === 0 ? (
+        <View className="w-full p-4 bg-white rounded-md">
+          <Text className="italic text-gray-600">
+            No available passenger types — contact the admin to create.
+          </Text>
+        </View>
       ) : (
-        <TouchableOpacity
-          className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md"
-          onPress={() => setShowDropdown(!showDropdown)}
-        >
-          <Text>{value}</Text>
-          <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={24} color="black" />
-        </TouchableOpacity>
-      )}
+        <>
+          <TouchableOpacity
+            className="flex-row items-center justify-between w-full p-4 bg-white rounded-t-md"
+            onPress={() => setShowDropdown(!showDropdown)}
+          >
+            <Text>{value || "Select passenger type"}</Text>
+            <Ionicons name={showDropdown ? "chevron-up" : "chevron-down"} size={24} color="black" />
+          </TouchableOpacity>
 
-      {error && !loading && (
-        <View className="w-full p-3 bg-red-50">
-          <Text className="text-sm text-red-500">{error}</Text>
-        </View>
-      )}
+          {error && (
+            <View className="w-full p-3 bg-red-50">
+              <Text className="text-sm text-red-500">{error}</Text>
+            </View>
+          )}
 
-      {showDropdown && passengerTypes.length > 0 && (
-        <View className="absolute z-20 w-full top-full">
-          {passengerTypes.map((type) => (
-            <TouchableOpacity
-              key={type}
-              className="w-full p-4 bg-white border-t border-gray-200"
-              onPress={() => handleSelect(type)}
-            >
-              <Text>{type}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {showDropdown && !loading && passengerTypes.length === 0 && (
-        <View className="absolute z-20 w-full top-full">
-          <View className="w-full p-4 bg-white border-t border-gray-200">
-            <Text className="italic text-gray-500">No passenger types available. Please create discounts first.</Text>
-          </View>
-        </View>
+          {showDropdown && passengerTypes.length > 0 && (
+            <View className="absolute z-20 w-full top-full">
+              {passengerTypes.map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  className="w-full p-4 bg-white border-t border-gray-200"
+                  onPress={() => handleSelect(type)}
+                >
+                  <Text>{type}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </>
       )}
     </View>
   )
