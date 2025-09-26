@@ -36,7 +36,7 @@ export async function getUserStats(
       databaseId,
       collectionId,
       [Query.equal("conductorId", conductorId), Query.orderDesc("timestamp")],
-      { batchSize: 100, maxDocs: 5000 }
+      { batchSize: 100 }
     );
 
     const remittanceResponse = await databases.listDocuments(

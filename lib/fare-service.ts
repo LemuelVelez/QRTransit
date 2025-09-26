@@ -1,4 +1,3 @@
-// lib/fare-service.ts
 import { ID, Query } from "react-native-appwrite";
 import { databases, config } from "./appwrite";
 import Constants from "expo-constants";
@@ -219,39 +218,38 @@ export async function getFareForDistance(distance: number): Promise<number> {
   }
 }
 
+/**
+ * calculateFareWithModifiers
+ * - ❌ Removed bus-type multiplier (now always 1.0)
+ * - ✅ Keeps passenger-type discount only
+ */
 export async function calculateFareWithModifiers(
   distance: number,
   passengerType: string = "",
-  busType: string = ""
+  _busType: string = ""
 ): Promise<{
   baseFare: number;
   finalFare: number;
   discountApplied: number;
   busMultiplier: number;
 }> {
-  // Import discount service functions
-  const {
-    getDiscountPercentage,
-    getBusTypeFareMultiplier,
-  } = require("./discount-service");
+  // Import ONLY passenger discount; bus multiplier removed
+  const { getDiscountPercentage } = require("./discount-service");
 
   const baseFare = await getFareForDistance(distance);
 
-  // Get passenger discount and bus multiplier
-  const [discountPct, busMult] = await Promise.all([
-    getDiscountPercentage(passengerType, busType),
-    getBusTypeFareMultiplier(busType),
-  ]);
+  // Only passenger discount now
+  const discountPct = await getDiscountPercentage(passengerType, "");
 
-  // Apply bus type multiplier first, then discount
-  let finalFare = baseFare * (busMult || 1);
+  const busMult = 1.0; // <- fixed neutral multiplier
+  let finalFare = baseFare * busMult;
   finalFare = finalFare * (1 - (discountPct || 0) / 100);
 
   return {
     baseFare,
     finalFare,
     discountApplied: discountPct || 0,
-    busMultiplier: busMult || 1,
+    busMultiplier: busMult,
   };
 }
 

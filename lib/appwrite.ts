@@ -31,13 +31,11 @@ export const databases = new Databases(client);
 export const storage = new Storage(client);
 
 /** ------------------------------
- *  Pagination helper (safe defaults)
+ *  Pagination helper (unlimited)
  *  - batchSize: 1..100 (default 100)
- *  - maxDocs: stop after N docs (default 1000) to avoid hammering API
  *  -------------------------------- */
 export interface ListAllOptions {
   batchSize?: number; // per-page size (Appwrite max 100)
-  maxDocs?: number;   // hard cap to protect API
 }
 export async function listAllDocuments(
   databaseId: string,
@@ -46,14 +44,21 @@ export async function listAllDocuments(
   options: ListAllOptions = {}
 ): Promise<any[]> {
   const batchSize = Math.min(Math.max(options.batchSize ?? 100, 1), 100);
-  const maxDocs = Math.max(options.maxDocs ?? 1000, 1);
 
   const out: any[] = [];
   let offset = 0;
 
-  while (out.length < maxDocs) {
-    const pageQueries = [...baseQueries, Query.limit(batchSize), Query.offset(offset)];
-    const res = await databases.listDocuments(databaseId, collectionId, pageQueries);
+  while (true) {
+    const pageQueries = [
+      ...baseQueries,
+      Query.limit(batchSize),
+      Query.offset(offset),
+    ];
+    const res = await databases.listDocuments(
+      databaseId,
+      collectionId,
+      pageQueries
+    );
     const docs = res?.documents ?? [];
     out.push(...docs);
 
@@ -61,7 +66,7 @@ export async function listAllDocuments(
     offset += batchSize;
   }
 
-  return out.slice(0, maxDocs);
+  return out;
 }
 
 // ---- Safe error normalization helper ----

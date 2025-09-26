@@ -61,7 +61,6 @@ async function listPassengerDocs(): Promise<any[]> {
   if (!db || !col) return [];
   const docs = await listAllDocuments(db, col, [], {
     batchSize: 100,
-    maxDocs: 2000,
   });
   return docs || [];
 }
@@ -74,7 +73,6 @@ async function listBusTypeDocs(): Promise<any[]> {
     try {
       const r = await listAllDocuments(db, busCol, [], {
         batchSize: 100,
-        maxDocs: 2000,
       });
       return r || [];
     } catch (e) {

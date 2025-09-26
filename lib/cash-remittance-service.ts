@@ -1,4 +1,3 @@
-// lib/cash-remittance-service.ts
 import { ID, Query } from "react-native-appwrite";
 import { databases, config, listAllDocuments } from "./appwrite";
 
@@ -176,7 +175,7 @@ export async function getRemittanceHistory(
       databaseId,
       collectionId,
       [Query.equal("conductorId", conductorId), Query.orderDesc("timestamp")],
-      { batchSize: 100, maxDocs: 2000 }
+      { batchSize: 100 }
     );
 
     return documents.map((doc: any) => ({
@@ -227,7 +226,7 @@ export async function getPendingRemittances(
         Query.equal("status", "pending"),
         Query.orderDesc("timestamp"),
       ],
-      { batchSize: 100, maxDocs: 2000 }
+      { batchSize: 100 }
     );
 
     return documents.map((doc: any) => ({
@@ -268,7 +267,7 @@ export async function getConductorRevenue(
       databaseId,
       tripsCol,
       [Query.equal("conductorId", conductorId), Query.orderDesc("timestamp")],
-      { batchSize: 100, maxDocs: 5000 }
+      { batchSize: 100 }
     );
 
     const total = docs
@@ -312,7 +311,7 @@ export async function getUnremittedCashByBus(
         Query.equal("busNumber", busNumber || ""),
         Query.orderDesc("timestamp"),
       ],
-      { batchSize: 100, maxDocs: 5000 }
+      { batchSize: 100 }
     );
 
     const total = docs

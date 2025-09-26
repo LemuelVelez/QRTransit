@@ -34,15 +34,8 @@ export interface Notification {
   data?: any;
 }
 
-/** ---------- Pagination helpers (to lift the 25-doc default) ---------- */
+/** ---------- Pagination helpers (unlimited) ---------- */
 const PAGE_SIZE = 100; // Appwrite max is typically 100 per page
-// Optional safety cap. Set EXPO_PUBLIC_FETCH_MAX_DOCS=0 or unset for no cap.
-const ENV_MAX_DOCS = Number.parseInt(
-  process.env.EXPO_PUBLIC_FETCH_MAX_DOCS ?? "0",
-  10
-);
-const GLOBAL_MAX_DOCS: number | undefined =
-  Number.isFinite(ENV_MAX_DOCS) && ENV_MAX_DOCS > 0 ? ENV_MAX_DOCS : undefined;
 
 /**
  * Fetch all documents for a given query by paging with cursorAfter.
@@ -52,10 +45,9 @@ async function listAllDocuments(
   databaseId: string,
   collectionId: string,
   baseQueries: string[],
-  opts?: { pageSize?: number; maxDocs?: number }
+  opts?: { pageSize?: number }
 ): Promise<any[]> {
   const limit = Math.min(Math.max(opts?.pageSize ?? PAGE_SIZE, 1), 100);
-  const maxDocs = opts?.maxDocs ?? GLOBAL_MAX_DOCS;
 
   const all: any[] = [];
   let cursor: string | null = null;
@@ -71,11 +63,6 @@ async function listAllDocuments(
     );
     const docs = res.documents ?? [];
     all.push(...docs);
-
-    if (maxDocs && all.length >= maxDocs) {
-      all.length = maxDocs; // trim to cap
-      break;
-    }
 
     if (docs.length < limit) break;
     cursor = docs[docs.length - 1].$id;

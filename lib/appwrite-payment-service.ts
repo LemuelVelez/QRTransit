@@ -1,4 +1,3 @@
-// lib/appwrite-payment-service.ts
 import { ID, Query } from "react-native-appwrite";
 import { databases, config, client, listAllDocuments } from "./appwrite";
 
@@ -26,12 +25,11 @@ export interface PaymentRequest {
     | "viewed";
   transactionId?: string;
   busNumber?: string;
-  busType?: string;
+  busType?: string; // ⛔ no "Regular" default anywhere
   ticketCount?: string;
   farePerPassenger?: string;
   totalFare?: string;
-  /** ✅ NEW: carry selected passenger type through QR flow */
-  passengerType?: string;
+  passengerType?: string; // ⛔ no "Regular" default anywhere
 }
 
 export async function createPaymentRequest(
@@ -46,7 +44,6 @@ export async function createPaymentRequest(
   busType?: string,
   ticketCount?: string,
   farePerPassenger?: string,
-  /** ✅ NEW */
   passengerType?: string
 ): Promise<PaymentRequest> {
   const databaseId = config.databaseId;
@@ -71,9 +68,8 @@ export async function createPaymentRequest(
     timestamp,
     status: "pending" as const,
     busNumber: busNumber || "",
-    busType: busType || "Regular",
-    /** ✅ include passengerType in the document */
-    passengerType: passengerType || "Regular",
+    busType: busType || "", // ✅ blank if not provided
+    passengerType: passengerType || "", // ✅ blank if not provided
   };
 
   const response: any = await databases.createDocument(
@@ -96,12 +92,11 @@ export async function createPaymentRequest(
     status: response.status,
     transactionId: response.transactionId,
     busNumber: response.busNumber,
-    busType: response.busType,
+    busType: response.busType || "",
     ticketCount: String(response.ticketCount ?? "1"),
     farePerPassenger: response.farePerPassenger || "",
     totalFare: response.totalFare || response.fare,
-    /** ✅ map back */
-    passengerType: response.passengerType || "Regular",
+    passengerType: response.passengerType || "",
   };
 }
 
@@ -148,7 +143,6 @@ export async function getPaymentRequests(
     baseQueries,
     {
       batchSize: 100,
-      maxDocs: 1000,
     }
   );
 
@@ -165,12 +159,11 @@ export async function getPaymentRequests(
     status: doc.status,
     transactionId: doc.transactionId,
     busNumber: doc.busNumber,
-    busType: doc.busType,
+    busType: doc.busType || "",
     ticketCount: String(doc.ticketCount ?? "1"),
     farePerPassenger: doc.farePerPassenger || "",
     totalFare: doc.totalFare || doc.fare,
-    /** ✅ include */
-    passengerType: doc.passengerType || "Regular",
+    passengerType: doc.passengerType || "",
   }));
 }
 
@@ -202,12 +195,11 @@ export async function getPaymentRequest(
     status: doc.status,
     transactionId: doc.transactionId,
     busNumber: doc.busNumber,
-    busType: doc.busType,
+    busType: doc.busType || "",
     ticketCount: String(doc.ticketCount ?? "1"),
     farePerPassenger: doc.farePerPassenger || "",
     totalFare: doc.totalFare || doc.fare,
-    /** ✅ include */
-    passengerType: doc.passengerType || "Regular",
+    passengerType: doc.passengerType || "",
   };
 }
 
@@ -250,12 +242,11 @@ export function subscribeToPaymentRequests(
         status: document.status,
         transactionId: document.transactionId,
         busNumber: document.busNumber,
-        busType: document.busType,
+        busType: document.busType || "",
         ticketCount: String(document.ticketCount ?? "1"),
         farePerPassenger: document.farePerPassenger || "",
         totalFare: document.totalFare || document.fare,
-        /** ✅ include */
-        passengerType: document.passengerType || "Regular",
+        passengerType: document.passengerType || "",
       };
 
       callback(paymentRequest);
