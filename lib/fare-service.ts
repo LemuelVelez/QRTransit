@@ -66,6 +66,8 @@ const parseFloat = (str: string | number): number => {
   const num = Number(str);
   return Number.isFinite(num) ? num : 0;
 };
+const eq = (a?: string, b?: string) =>
+  (a || "").toLowerCase().trim() === (b || "").toLowerCase().trim();
 
 // CRUD Operations
 export async function getFareConfigurations(): Promise<FareConfig[]> {
@@ -171,11 +173,11 @@ export async function deleteFareConfiguration(id: string): Promise<boolean> {
   }
 }
 
-// Fare Calculation Helpers
+// Fare Calculation Helpers (distance-tier fallback)
 export async function getFareForDistance(distance: number): Promise<number> {
   try {
     const configs = await getFareConfigurations();
-    const activeConfigs = configs.filter((c) => c.active);
+    const activeConfigs = configs.filter((c) => c.active && !c.busType);
 
     if (activeConfigs.length === 0) {
       // Default fallback calculation
@@ -219,29 +221,90 @@ export async function getFareForDistance(distance: number): Promise<number> {
 }
 
 /**
+ * 🔎 NEW: Get per-kilometer rate for a specific bus type, derived from Fare collection.
+ * - If a fare row has busType set, we interpret `fare/kilometer` as the per-km price.
+ * - If `kilometer` is 0/blank, we treat it as 1 (so a row like fare=2.35, kilometer=1 → 2.35/km).
+ * - If multiple rows exist for the same busType, we pick the most recently created one
+ *   that yields a valid positive rate; otherwise we take the smallest positive rate.
+ */
+export async function getPerKmRateForBusType(
+  busType: string
+): Promise<number | null> {
+  const bt = (busType || "").trim();
+  if (!bt) return null;
+
+  try {
+    const configs = await getFareConfigurations();
+    const matches = configs.filter(
+      (c) => c.active && c.busType && eq(c.busType, bt)
+    );
+
+    if (matches.length === 0) return null;
+
+    // Compute candidate rates
+    const candidates = matches
+      .map((c) => {
+        const km = Math.max(1, parseFloat(c.kilometer)); // treat missing/0 as 1
+        const perKm = parseFloat(c.fare) / km;
+        const ts = Date.parse(c.createdAt || "") || 0;
+        return { perKm, ts };
+      })
+      .filter((x) => Number.isFinite(x.perKm) && x.perKm > 0);
+
+    if (candidates.length === 0) return null;
+
+    // Prefer newest valid config
+    candidates.sort((a, b) => b.ts - a.ts);
+    const newest = candidates[0];
+
+    // As a safety, also find the minimum rate to avoid accidental spikes
+    const minPerKm = Math.min(...candidates.map((c) => c.perKm));
+
+    // Heuristic: if newest perKm is wildly larger than the minimum (e.g., data entry mistake),
+    // use the min. Otherwise use newest.
+    const chosen = newest.perKm > minPerKm * 3 ? minPerKm : newest.perKm;
+
+    return chosen;
+  } catch (e) {
+    console.warn("getPerKmRateForBusType error:", e);
+    return null;
+  }
+}
+
+/**
  * calculateFareWithModifiers
- * - ❌ Removed bus-type multiplier (now always 1.0)
- * - ✅ Keeps passenger-type discount only
+ * - ✅ Base fare now respects per-km rate from Fare collection for the chosen busType
+ * - ❌ No bus-type multiplier (still removed per your earlier request)
+ * - ✅ Passenger-type discount still applies
  */
 export async function calculateFareWithModifiers(
   distance: number,
   passengerType: string = "",
-  _busType: string = ""
+  busType: string = ""
 ): Promise<{
   baseFare: number;
   finalFare: number;
   discountApplied: number;
   busMultiplier: number;
 }> {
-  // Import ONLY passenger discount; bus multiplier removed
+  const dist = Math.max(0, Number(distance) || 0);
+
+  // Try busType-specific per-km pricing first
+  const perKm = await getPerKmRateForBusType(busType);
+
+  let baseFare: number;
+  if (perKm != null) {
+    baseFare = dist * perKm;
+  } else {
+    // Fall back to distance-tier model (rows without busType)
+    baseFare = await getFareForDistance(dist);
+  }
+
+  // Only passenger discount (no bus multiplier)
   const { getDiscountPercentage } = require("./discount-service");
+  const discountPct = await getDiscountPercentage(passengerType, busType);
 
-  const baseFare = await getFareForDistance(distance);
-
-  // Only passenger discount now
-  const discountPct = await getDiscountPercentage(passengerType, "");
-
-  const busMult = 1.0; // <- fixed neutral multiplier
+  const busMult = 1.0; // neutral
   let finalFare = baseFare * busMult;
   finalFare = finalFare * (1 - (discountPct || 0) / 100);
 

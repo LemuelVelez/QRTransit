@@ -1,3 +1,5 @@
+// lib/google-maps-service.ts
+
 interface DistanceResult {
   distance: number; // in kilometers
   duration: number; // in seconds
@@ -11,17 +13,29 @@ type CalculateDistanceOptions = {
 
 type LatLng = { lat: number; lng: number };
 
+const REGION_BIAS = "ph"; // 🇵🇭 bias
+const COUNTRY_COMPONENT = "country:ph";
+
+/* =======================
+ * Geocoding
+ * ======================= */
+
 /**
  * Geocode a free-form address/place into Lat/Lng using Google Geocoding API.
+ * Adds country & region bias for PH to improve accuracy.
  */
 async function geocodeAddress(
   address: string,
   apiKey: string
 ): Promise<LatLng | null> {
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      address
-    )}&key=${apiKey}`;
+    const url =
+      `https://maps.googleapis.com/maps/api/geocode/json` +
+      `?address=${encodeURIComponent(address)}` +
+      `&components=${encodeURIComponent(COUNTRY_COMPONENT)}` +
+      `&region=${encodeURIComponent(REGION_BIAS)}` +
+      `&key=${apiKey}`;
+
     const resp = await fetch(url);
     const data = await resp.json();
     if (data.status === "OK" && data.results?.[0]?.geometry?.location) {
@@ -34,10 +48,155 @@ async function geocodeAddress(
   }
 }
 
+/* =======================
+ * Distance Matrix helpers
+ * ======================= */
+
+function coordToStr(ll: LatLng) {
+  return `${ll.lat},${ll.lng}`;
+}
+
+async function getDMOneLeg(
+  orig: string,
+  dest: string,
+  mapsApiKey: string
+): Promise<{ km: number; sec: number } | null> {
+  const url =
+    `https://maps.googleapis.com/maps/api/distancematrix/json` +
+    `?origins=${encodeURIComponent(orig)}` +
+    `&destinations=${encodeURIComponent(dest)}` +
+    `&mode=driving` +
+    `&region=${encodeURIComponent(REGION_BIAS)}` +
+    `&key=${mapsApiKey}`;
+  const resp = await fetch(url);
+  const data = await resp.json();
+  if (
+    data.status === "OK" &&
+    data.rows?.[0]?.elements?.[0]?.status === "OK"
+  ) {
+    const el = data.rows[0].elements[0];
+    return { km: el.distance.value / 1000, sec: el.duration.value };
+  }
+  return null;
+}
+
 /**
- * Calculate distance using Google Routes API v2 (preferred) with strict VIA,
- * falling back to Distance Matrix API by chaining legs. All inputs are geocoded
- * first to avoid address parsing ambiguity (especially for commas in addresses).
+ * Distance Matrix for a chain of points (origin -> ...via -> destination).
+ * Works for both zero-via (single leg) and multi-via cases.
+ */
+async function distanceMatrixChained(
+  points: string[],
+  mapsApiKey: string
+): Promise<DistanceResult> {
+  let totalKm = 0;
+  let totalSec = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const leg = await getDMOneLeg(points[i], points[i + 1], mapsApiKey);
+    if (!leg) {
+      return { distance: 0, duration: 0, status: "ERROR" };
+    }
+    totalKm += leg.km;
+    totalSec += leg.sec;
+  }
+  if (totalKm > 0) {
+    return { distance: totalKm, duration: Math.round(totalSec), status: "OK" };
+  }
+  return { distance: 0, duration: 0, status: "ZERO_RESULTS" };
+}
+
+/* =======================
+ * Routes API helper
+ * ======================= */
+
+async function routesApiCompute(
+  originSpec: any,
+  destSpec: any,
+  intermediates: any[] | undefined,
+  routesApiKey: string
+): Promise<DistanceResult> {
+  const url = "https://routes.googleapis.com/directions/v2:computeRoutes";
+  const body: any = {
+    origin: originSpec,
+    destination: destSpec,
+    travelMode: "DRIVE",
+    routingPreference: "TRAFFIC_AWARE_OPTIMAL",
+    computeAlternativeRoutes: false,
+    optimizeWaypointOrder: false, // respect exact VIA order
+  };
+  if (intermediates && intermediates.length) {
+    body.intermediates = intermediates;
+  }
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": routesApiKey,
+      "X-Goog-FieldMask":
+        "routes.distanceMeters,routes.duration,routes.legs.distanceMeters,routes.legs.duration",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await response.json();
+
+  if (data?.routes?.length > 0) {
+    const route = data.routes[0];
+
+    // Prefer summing legs when available for stability
+    let legsMeters = 0;
+    let legsSecs = 0;
+    if (Array.isArray(route.legs) && route.legs.length) {
+      legsMeters = route.legs.reduce(
+        (sum: number, leg: any) => sum + (leg?.distanceMeters ?? 0),
+        0
+      );
+      legsSecs = route.legs.reduce((sum: number, leg: any) => {
+        const d = String(leg?.duration ?? "0").replace("s", "");
+        const n = Number.parseFloat(d);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+    }
+
+    // Fallback to route-level metrics if legs unavailable
+    const routeMeters =
+      typeof route.distanceMeters === "number" ? route.distanceMeters : 0;
+    const routeSecs = (() => {
+      const d = String(route.duration ?? "0").replace("s", "");
+      const n = Number.parseFloat(d);
+      return Number.isFinite(n) ? n : 0;
+    })();
+
+    // Choose the more reliable set
+    const distanceMeters =
+      legsMeters > 0 ? legsMeters : routeMeters;
+    const durationSecs =
+      legsMeters > 0 ? legsSecs : routeSecs;
+
+    const distanceKm = distanceMeters / 1000;
+    if (distanceKm > 0) {
+      return {
+        distance: distanceKm,
+        duration: Math.round(durationSecs),
+        status: "OK",
+      };
+    }
+    return { distance: 0, duration: 0, status: "ZERO_RESULTS" };
+  }
+
+  return { distance: 0, duration: 0, status: "ZERO_RESULTS" };
+}
+
+/* =======================
+ * Public API
+ * ======================= */
+
+/**
+ * Calculate distance using:
+ *  - ✅ If NO VIA and Maps key present: Distance Matrix first (more stable for single leg)
+ *  - ✅ If VIA present: Routes API with strict intermediates (enforces corridor)
+ *  - 🔁 Robust fallbacks across both APIs
+ * All inputs are geocoded first (PH-biased) to reduce ambiguity.
  */
 export async function calculateDistance(
   origin: string,
@@ -48,21 +207,19 @@ export async function calculateDistance(
     const routesApiKey = process.env.EXPO_PUBLIC_GOOGLE_ROUTES_API_KEY;
     const mapsApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-    const viaList: string[] = Array.isArray(options?.via)
+    const viaListRaw: string[] = Array.isArray(options?.via)
       ? options?.via
       : options?.via
       ? [options.via]
       : [];
+    const viaList = viaListRaw.map((v) => String(v || "").trim()).filter(Boolean);
 
     if (!routesApiKey && !mapsApiKey) {
       console.error("Both Google API keys are missing");
       return { distance: 0, duration: 0, status: "ERROR" };
     }
 
-    // --- Geocode everything to coordinates (more reliable than free-form strings) ---
-    if (!mapsApiKey) {
-      // Without Maps key we cannot geocode; keep addresses as-is and rely on Routes API
-    }
+    // --- Geocode everything (PH bias) ---
     let originLL: LatLng | null = null;
     let destLL: LatLng | null = null;
     let viasLL: (LatLng | null)[] = [];
@@ -82,152 +239,136 @@ export async function calculateDistance(
       !!originLL &&
       !!destLL &&
       viasLL.length === viaList.length &&
-      viasLL.every(Boolean);
+      viasLL.every((x) => x !== null);
 
-    // --- Preferred: Routes API v2 with coordinates (or addresses if no geocode) ---
-    if (routesApiKey) {
-      try {
-        const url = "https://routes.googleapis.com/directions/v2:computeRoutes";
+    // Helper creators for Routes API specs
+    const toWaypoint = (ll: LatLng | null, addr: string) =>
+      ll
+        ? { location: { latLng: { latitude: ll.lat, longitude: ll.lng } } }
+        : { address: addr };
 
-        const toWaypoint = (ll: LatLng | null, addr: string) =>
-          ll
-            ? { location: { latLng: { latitude: ll.lat, longitude: ll.lng } } }
-            : { address: addr }; // fallback if geocode missing
+    /* ===================================================
+     * Strategy 1: NO VIA → Prefer Distance Matrix (single leg)
+     * =================================================== */
+    if (viaList.length === 0 && mapsApiKey) {
+      const oStr = originLL ? coordToStr(originLL) : origin;
+      const dStr = destLL ? coordToStr(destLL) : destination;
 
-        const body: any = {
-          origin: haveAllCoords
-            ? {
-                location: {
-                  latLng: { latitude: originLL!.lat, longitude: originLL!.lng },
-                },
-              }
-            : { address: origin },
-          destination: haveAllCoords
-            ? {
-                location: {
-                  latLng: { latitude: destLL!.lat, longitude: destLL!.lng },
-                },
-              }
-            : { address: destination },
-          travelMode: "DRIVE",
-          routingPreference: "TRAFFIC_AWARE_OPTIMAL",
-          computeAlternativeRoutes: false,
-          optimizeWaypointOrder: false, // respect exact VIA order
-        };
+      const dmResult = await distanceMatrixChained([oStr, dStr], mapsApiKey);
+      if (dmResult.status === "OK" && dmResult.distance > 0) {
+        return dmResult;
+      }
 
-        if (viaList.length) {
-          const intermediates = viaList.map((v, i) =>
-            toWaypoint(viasLL[i] ?? null, v)
-          );
-          body.intermediates = intermediates;
+      // Fallback to Routes API if DM did not yield results
+      if (routesApiKey) {
+        const originSpec = haveAllCoords
+          ? {
+              location: {
+                latLng: { latitude: originLL!.lat, longitude: originLL!.lng },
+              },
+            }
+          : { address: origin };
+        const destSpec = haveAllCoords
+          ? {
+              location: {
+                latLng: { latitude: destLL!.lat, longitude: destLL!.lng },
+              },
+            }
+          : { address: destination };
+
+        const routesResult = await routesApiCompute(
+          originSpec,
+          destSpec,
+          undefined,
+          routesApiKey
+        );
+        if (routesResult.status === "OK" && routesResult.distance > 0) {
+          return routesResult;
         }
-
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": routesApiKey,
-            "X-Goog-FieldMask":
-              "routes.distanceMeters,routes.duration,routes.legs.distanceMeters,routes.legs.duration",
-          },
-          body: JSON.stringify(body),
-        });
-
-        const data = await response.json();
-
-        if (data?.routes?.length > 0) {
-          const route = data.routes[0];
-          let distanceMeters = route.distanceMeters ?? 0;
-          let durationS = 0;
-
-          if (
-            !distanceMeters &&
-            Array.isArray(route.legs) &&
-            route.legs.length
-          ) {
-            distanceMeters = route.legs.reduce(
-              (sum: number, leg: any) => sum + (leg?.distanceMeters ?? 0),
-              0
-            );
-            durationS = route.legs.reduce((sum: number, leg: any) => {
-              const d = String(leg?.duration ?? "0").replace("s", "");
-              const n = Number.parseFloat(d);
-              return sum + (Number.isFinite(n) ? n : 0);
-            }, 0);
-          } else {
-            const d = String(route.duration ?? "0").replace("s", "");
-            const n = Number.parseFloat(d);
-            durationS = Number.isFinite(n) ? n : 0;
-          }
-
-          const distanceKm = distanceMeters / 1000;
-          if (distanceKm > 0) {
-            return {
-              distance: distanceKm,
-              duration: Math.round(durationS),
-              status: "OK",
-            };
-          }
-        }
-      } catch (routesError) {
-        console.error("Routes API error:", routesError);
-        // fall through
       }
     }
 
-    // --- Fallback: Distance Matrix API, chaining legs origin -> via... -> destination ---
-    if (mapsApiKey) {
-      const coordToStr = (ll: LatLng) => `${ll.lat},${ll.lng}`;
+    /* ===================================================
+     * Strategy 2: VIA present → Prefer Routes API (strict corridor)
+     * =================================================== */
+    if (viaList.length > 0 && routesApiKey) {
+      const originSpec = haveAllCoords
+        ? {
+            location: {
+              latLng: { latitude: originLL!.lat, longitude: originLL!.lng },
+            },
+          }
+        : { address: origin };
+      const destSpec = haveAllCoords
+        ? {
+            location: {
+              latLng: { latitude: destLL!.lat, longitude: destLL!.lng },
+            },
+          }
+        : { address: destination };
+      const inters = viaList.map((v, i) => toWaypoint(viasLL[i] ?? null, v));
 
-      const getLeg = async (
-        orig: string,
-        dest: string
-      ): Promise<{ km: number; sec: number } | null> => {
-        const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(
-          orig
-        )}&destinations=${encodeURIComponent(dest)}&key=${mapsApiKey}`;
-        const resp = await fetch(url);
-        const data = await resp.json();
-        if (
-          data.status === "OK" &&
-          data.rows?.[0]?.elements?.[0]?.status === "OK"
-        ) {
-          const el = data.rows[0].elements[0];
-          return { km: el.distance.value / 1000, sec: el.duration.value };
+      const routesResult = await routesApiCompute(
+        originSpec,
+        destSpec,
+        inters,
+        routesApiKey
+      );
+      if (routesResult.status === "OK" && routesResult.distance > 0) {
+        return routesResult;
+      }
+      // Fallback to Distance Matrix chained legs if Routes failed
+      if (mapsApiKey) {
+        const oStr = originLL ? coordToStr(originLL) : origin;
+        const dStr = destLL ? coordToStr(destLL) : destination;
+        const vStrs = viasLL.length
+          ? viasLL.map((ll, i) => (ll ? coordToStr(ll) : viaList[i]))
+          : viaList;
+
+        const dmResult = await distanceMatrixChained(
+          [oStr, ...vStrs, dStr],
+          mapsApiKey
+        );
+        if (dmResult.status === "OK" && dmResult.distance > 0) {
+          return dmResult;
         }
-        return null;
-      };
+      }
+    }
 
-      // Use coordinates if we have them; else use the raw address strings
+    /* ===================================================
+     * Last resort: try whatever key is available
+     * =================================================== */
+    if (mapsApiKey) {
       const oStr = originLL ? coordToStr(originLL) : origin;
       const dStr = destLL ? coordToStr(destLL) : destination;
-      const vStrs = viasLL.length
-        ? viasLL.map((ll, i) =>
-            ll ? coordToStr(ll) : (options?.via as string[])[i]
-          )
-        : Array.isArray(options?.via)
-        ? options?.via
-        : [];
-
-      let points = [oStr, ...vStrs, dStr];
-      let totalKm = 0;
-      let totalSec = 0;
-
-      for (let i = 0; i < points.length - 1; i++) {
-        const leg = await getLeg(points[i], points[i + 1]);
-        if (!leg) {
-          return { distance: 0, duration: 0, status: "ERROR" };
-        }
-        totalKm += leg.km;
-        totalSec += leg.sec;
+      const dmResult = await distanceMatrixChained([oStr, dStr], mapsApiKey);
+      if (dmResult.status === "OK" && dmResult.distance > 0) {
+        return dmResult;
       }
-
-      if (totalKm > 0) {
-        return {
-          distance: totalKm,
-          duration: Math.round(totalSec),
-          status: "OK",
-        };
+    }
+    if (routesApiKey) {
+      const originSpec = haveAllCoords
+        ? {
+            location: {
+              latLng: { latitude: originLL!.lat, longitude: originLL!.lng },
+            },
+          }
+        : { address: origin };
+      const destSpec = haveAllCoords
+        ? {
+            location: {
+              latLng: { latitude: destLL!.lat, longitude: destLL!.lng },
+            },
+          }
+        : { address: destination };
+      const routesResult = await routesApiCompute(
+        originSpec,
+        destSpec,
+        undefined,
+        routesApiKey
+      );
+      if (routesResult.status === "OK" && routesResult.distance > 0) {
+        return routesResult;
       }
     }
 
@@ -276,13 +417,10 @@ export async function placesAutocomplete(
     params.set("input", input);
     params.set("key", mapsApiKey);
     params.set("types", opts?.types || "geocode");
-    params.set("components", opts?.components || "country:ph");
+    params.set("components", opts?.components || COUNTRY_COMPONENT);
     if (opts?.sessionToken) params.set("sessiontoken", opts.sessionToken);
     if (opts?.locationBias) {
-      params.set(
-        "location",
-        `${opts.locationBias.lat},${opts.locationBias.lng}`
-      );
+      params.set("location", `${opts.locationBias.lat},${opts.locationBias.lng}`);
       params.set(
         "radius",
         String(Math.max(500, Math.min(50000, opts.locationBias.radiusMeters)))
